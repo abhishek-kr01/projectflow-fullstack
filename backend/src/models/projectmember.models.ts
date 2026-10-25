@@ -1,0 +1,14 @@
+import mongoose, { Schema } from "mongoose";
+import { AvailableUserRole, UserRolesEnum } from "../utils/constants.js";
+
+const projectMemberSchema = new Schema<any>(
+  {
+    user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    project: { type: Schema.Types.ObjectId, ref: "Project", required: true },
+    role: { type: String, enum: AvailableUserRole, default: UserRolesEnum.MEMBER },
+  },
+  { timestamps: true },
+);
+projectMemberSchema.index({ user: 1, project: 1 }, { unique: true });
+
+export const ProjectMember = (mongoose.models.ProjectMember as any) || mongoose.model<any>("ProjectMember", projectMemberSchema);

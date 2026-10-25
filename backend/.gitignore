@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.env.*.local
+coverage/
+*.log
+public/images/*
+!public/images/.gitkeep
