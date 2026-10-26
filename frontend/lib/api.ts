@@ -1,4 +1,4 @@
-import type { Project, ProjectMember, ProjectNote, Task, User } from "@/lib/types";
+import type { AppNotification, NotificationList, Project, ProjectMember, ProjectNote, Task, User } from "@/lib/types";
 
 const rawBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 export const API_BASE_URL = rawBase.replace(/\/+$/, "");
@@ -92,6 +92,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
         token = refreshData.accessToken as string;
         window.localStorage.setItem("projectflow_access_token", token);
         if (refreshData.refreshToken) window.localStorage.setItem("projectflow_refresh_token", String(refreshData.refreshToken));
+        window.dispatchEvent(new Event("projectflow:token-refreshed"));
         response = await performFetch(path, init, token);
       } else {
         clearStoredSession();
@@ -179,6 +180,12 @@ export const api = {
     create: (projectId: string, content: string) => request<ProjectNote>(`/notes/${projectId}`, json("POST", { content })),
     update: (projectId: string, noteId: string, content: string) => request<ProjectNote>(`/notes/${projectId}/n/${noteId}`, json("PUT", { content })),
     remove: (projectId: string, noteId: string) => request<unknown>(`/notes/${projectId}/n/${noteId}`, json("DELETE")),
+  },
+  notifications: {
+    list: (limit = 30) => request<NotificationList>(`/notifications?limit=${Math.min(Math.max(limit, 1), 50)}`, { method: "GET" }),
+    markRead: (notificationId: string) => request<AppNotification>(`/notifications/${notificationId}/read`, json("PATCH")),
+    markAllRead: () => request<{ modifiedCount: number }>("/notifications/read-all", json("PATCH")),
+    remove: (notificationId: string) => request<{ _id: string }>(`/notifications/${notificationId}`, json("DELETE")),
   },
 };
 

@@ -5,6 +5,8 @@ import { ProjectMember } from "../models/projectmember.models.js";
 import { Task } from "../models/task.models.js";
 import { Subtask } from "../models/subtask.models.js";
 import { ProjectNote } from "../models/projectnote.models.js";
+import { Notification } from "../models/notification.models.js";
+import { safelyNotifyProjectMembers, safelyNotifyUsers } from "../services/notification.service.js";
 import { ApiResponse } from "../utils/api-response.js";
 import { ApiError } from "../utils/api-error.js";
 import { asyncHandler } from "../utils/async-handler.js";
@@ -47,6 +49,11 @@ export const updateProject = asyncHandler(async (req, res) => {
     { new: true, runValidators: true },
   );
   if (!project) throw new ApiError(404, "Project not found.");
+  await safelyNotifyProjectMembers(req.params.projectId, req.user._id, {
+    type: "project_updated", title: "Project details were updated",
+    body: `${req.user.fullName || req.user.username || "A teammate"} updated “${project.name}”.`,
+    href: `/projects/${req.params.projectId}`, entityType: "project", entityId: project._id,
+  });
   return res.status(200).json(new ApiResponse(200, project, "Project updated successfully."));
 });
 
@@ -61,6 +68,7 @@ export const deleteProject = asyncHandler(async (req, res) => {
     Task.deleteMany({ project: projectId }),
     ProjectNote.deleteMany({ project: projectId }),
     ProjectMember.deleteMany({ project: projectId }),
+    Notification.deleteMany({ project: projectId }),
   ]);
   await project.deleteOne();
   return res.status(200).json(new ApiResponse(200, { _id: projectId }, "Project and its related data deleted successfully."));
@@ -76,6 +84,12 @@ export const addMembersToProject = asyncHandler(async (req, res) => {
   if (existing) throw new ApiError(409, "This person is already a member of the project.");
   const membership = await ProjectMember.create({ user: user._id, project: projectId, role });
   const result = await ProjectMember.findById(membership._id).populate("user", "username email fullName avatar");
+  const project = await Project.findById(projectId).select("name").lean();
+  await safelyNotifyUsers([user._id], {
+    actorId: req.user._id, projectId, type: "member_added", title: "You were added to a project",
+    body: `${req.user.fullName || req.user.username || "A teammate"} added you to “${project?.name || "a project"}”.`,
+    href: `/projects/${projectId}`, entityType: "member", entityId: user._id,
+  });
   return res.status(201).json(new ApiResponse(201, result, "Project member added successfully."));
 });
 
@@ -103,14 +117,24 @@ export const updateMemberRole = asyncHandler(async (req, res) => {
   membership.role = newRole;
   await membership.save();
   const updated = await ProjectMember.findById(membership._id).populate("user", "username email fullName avatar");
+  await safelyNotifyUsers([userId], {
+    actorId: req.user._id, projectId, type: "member_role_updated", title: "Your project role changed",
+    body: `Your role was changed to ${newRole.replace("_", " ")}.`,
+    href: `/projects/${projectId}/members`, entityType: "member", entityId: userId,
+  });
   return res.status(200).json(new ApiResponse(200, updated, "Project member role updated successfully."));
 });
 
 export const deleteMember = asyncHandler(async (req, res) => {
   const { projectId, userId } = req.params;
-  const project = await Project.findById(projectId).select("createdBy");
+  const project = await Project.findById(projectId).select("createdBy name");
   if (project && String(project.createdBy) === String(userId)) throw new ApiError(400, "The project owner cannot be removed from the project.");
   const membership = await ProjectMember.findOneAndDelete({ project: projectId, user: userId });
   if (!membership) throw new ApiError(404, "Project member not found.");
+  await safelyNotifyUsers([userId], {
+    actorId: req.user._id, projectId, type: "member_removed", title: "You were removed from a project",
+    body: `Your access to “${project?.name || "a project"}” was removed.`,
+    href: "/notifications", entityType: "member", entityId: userId,
+  });
   return res.status(200).json(new ApiResponse(200, membership, "Project member removed successfully."));
 });

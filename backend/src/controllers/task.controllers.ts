@@ -8,6 +8,7 @@ import { ApiError } from "../utils/api-error.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { AvailableTaskStatuses, UserRolesEnum } from "../utils/constants.js";
 import { publishProjectEvent } from "../utils/realtime.js";
+import { safelyNotifyProjectMembers, safelyNotifyUsers } from "../services/notification.service.js";
 
 const assertAssigneeIsMember = async (projectId: string, assignedTo?: string | null) => {
   if (!assignedTo) return;
@@ -48,6 +49,21 @@ export const createTask = asyncHandler(async (req, res) => {
   });
   const populated = await Task.findById(task._id).populate("assignedTo", "avatar username fullName email").populate("assignedBy", "avatar username fullName");
   publishProjectEvent(projectId, "task:created", populated);
+  const assignedId = task.assignedTo ? String(task.assignedTo) : "";
+  await safelyNotifyProjectMembers(projectId, req.user._id, {
+    type: "task_created",
+    title: "A task was created",
+    body: `${req.user.fullName || req.user.username || "A teammate"} created “${task.title}”.`,
+    href: `/projects/${projectId}/tasks`,
+    entityType: "task",
+    entityId: task._id,
+  }, assignedId ? [assignedId] : []);
+  if (assignedId && assignedId !== String(req.user._id)) {
+    await safelyNotifyUsers([assignedId], {
+      actorId: req.user._id, projectId, type: "task_assigned", title: "A task was assigned to you",
+      body: `You were assigned “${task.title}”.`, href: `/projects/${projectId}/tasks`, entityType: "task", entityId: task._id,
+    });
+  }
   return res.status(201).json(new ApiResponse(201, populated, "Task created successfully."));
 });
 
@@ -66,6 +82,9 @@ export const updateTask = asyncHandler(async (req, res) => {
   const task = await Task.findOne({ _id: taskId, project: projectId });
   if (!task) throw new ApiError(404, "Task not found in this project.");
   const { title, description, status, assignedTo } = req.body;
+  const previousAssigneeId = task.assignedTo ? String(task.assignedTo) : "";
+  const previousStatus = String(task.status);
+  const assignmentWasSubmitted = Object.prototype.hasOwnProperty.call(req.body, "assignedTo");
 
   // Members may only change the status of a task assigned to themselves.
   // Admins and project admins can continue editing task details and assignees.
@@ -92,6 +111,18 @@ export const updateTask = asyncHandler(async (req, res) => {
   await task.save();
   const populated = await Task.findById(task._id).populate("assignedTo", "avatar username fullName email").populate("assignedBy", "avatar username fullName");
   publishProjectEvent(projectId, "task:updated", populated);
+  const currentAssigneeId = task.assignedTo ? String(task.assignedTo) : "";
+  const assignmentChanged = assignmentWasSubmitted && previousAssigneeId !== currentAssigneeId;
+  await safelyNotifyProjectMembers(projectId, req.user._id, {
+    type: assignmentChanged ? (currentAssigneeId ? "task_assigned" : "task_unassigned") : "task_updated",
+    title: assignmentChanged ? "Task assignment changed" : "Task updated",
+    body: assignmentChanged
+      ? `Assignment changed for “${task.title}”.`
+      : `${req.user.fullName || req.user.username || "A teammate"} updated “${task.title}”${previousStatus !== String(task.status) ? ` to ${String(task.status).replace("_", " ")}` : ""}.`,
+    href: `/projects/${projectId}/tasks`,
+    entityType: "task",
+    entityId: task._id,
+  });
   return res.status(200).json(new ApiResponse(200, populated, "Task updated successfully."));
 });
 
@@ -101,15 +132,24 @@ export const deleteTask = asyncHandler(async (req, res) => {
   if (!task) throw new ApiError(404, "Task not found in this project.");
   await Subtask.deleteMany({ task: taskId });
   publishProjectEvent(projectId, "task:deleted", { _id: taskId });
+  await safelyNotifyProjectMembers(projectId, req.user._id, {
+    type: "task_deleted", title: "A task was deleted", body: `“${task.title}” was deleted.`,
+    href: `/projects/${projectId}/tasks`, entityType: "task", entityId: task._id,
+  });
   return res.status(200).json(new ApiResponse(200, task, "Task and its subtasks deleted successfully."));
 });
 
 export const createSubTask = asyncHandler(async (req, res) => {
   const { projectId, taskId } = req.params;
-  const task = await Task.findOne({ _id: taskId, project: projectId }).select("_id");
+  const task = await Task.findOne({ _id: taskId, project: projectId }).select("_id title");
   if (!task) throw new ApiError(404, "Task not found in this project.");
   const subtask = await Subtask.create({ title: String(req.body.title).trim(), task: taskId, createdBy: req.user._id });
   const populated = await Subtask.findById(subtask._id).populate("createdBy", "username fullName avatar");
+  publishProjectEvent(projectId, "subtask:created", populated);
+  await safelyNotifyProjectMembers(projectId, req.user._id, {
+    type: "subtask_created", title: "A subtask was added", body: `A subtask was added to “${task.title}”.`,
+    href: `/projects/${projectId}/tasks`, entityType: "task", entityId: taskId,
+  });
   return res.status(201).json(new ApiResponse(201, populated, "Subtask created successfully."));
 });
 
@@ -127,11 +167,21 @@ export const updateSubTask = asyncHandler(async (req, res) => {
   if (req.body.isCompleted !== undefined) subtask.isCompleted = req.body.isCompleted === true || req.body.isCompleted === "true";
   await subtask.save();
   const populated = await Subtask.findById(subtask._id).populate("createdBy", "username fullName avatar");
+  publishProjectEvent(req.params.projectId, "subtask:updated", populated);
+  await safelyNotifyProjectMembers(req.params.projectId, req.user._id, {
+    type: "subtask_updated", title: "A subtask was updated", body: `Subtask “${subtask.title}” was updated.`,
+    href: `/projects/${req.params.projectId}/tasks`, entityType: "task", entityId: subtask.task,
+  });
   return res.status(200).json(new ApiResponse(200, populated, "Subtask updated successfully."));
 });
 
 export const deleteSubTask = asyncHandler(async (req, res) => {
   const subtask = await findSubtaskInProject(req.params.projectId, req.params.subTaskId);
   await subtask.deleteOne();
+  publishProjectEvent(req.params.projectId, "subtask:deleted", { _id: req.params.subTaskId });
+  await safelyNotifyProjectMembers(req.params.projectId, req.user._id, {
+    type: "subtask_deleted", title: "A subtask was removed", body: `Subtask “${subtask.title}” was removed.`,
+    href: `/projects/${req.params.projectId}/tasks`, entityType: "task", entityId: subtask.task,
+  });
   return res.status(200).json(new ApiResponse(200, subtask, "Subtask deleted successfully."));
 });

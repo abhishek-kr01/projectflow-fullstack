@@ -10,6 +10,7 @@ import taskRouter from "./routes/task.routes.js";
 import projectNoteRouter from "./routes/projectnote.routes.js";
 import messageRouter from "./routes/message.routes.js";
 import realtimeRouter from "./routes/realtime.routes.js";
+import notificationRouter from "./routes/notification.routes.js";
 import { ApiError } from "./utils/api-error.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 
@@ -41,6 +42,7 @@ app.use("/api/v1/tasks", taskRouter);
 app.use("/api/v1/notes", projectNoteRouter);
 app.use("/api/v1/messages", messageRouter);
 app.use("/api/v1/realtime", realtimeRouter);
+app.use("/api/v1/notifications", notificationRouter);
 app.use((_req, _res, next) => next(new ApiError(404, "Route not found.")));
 app.use(errorHandler);
 

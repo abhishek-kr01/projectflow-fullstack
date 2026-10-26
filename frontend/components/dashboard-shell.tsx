@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { API_BASE_URL, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import type { Project } from "@/lib/types";
+import type { AppNotification, Project } from "@/lib/types";
 import { Avatar, BrandMark } from "@/components/ui";
-import { ChevronDown, ChevronLeft, CircleHelp, Command, FolderKanban, LayoutDashboard, LogOut, Menu, Plus, Search, Settings2, Sparkles, X, CheckSquare } from "lucide-react";
+import { Bell, CheckCheck, ChevronDown, ChevronLeft, CircleHelp, Command, FileText, FolderKanban, LayoutDashboard, LogOut, Menu, MessageCircle, Plus, Search, Settings2, Sparkles, UserPlus, X, CheckSquare, CircleCheck, ClipboardList } from "lucide-react";
 
 const mainNav = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
@@ -24,6 +24,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [projectLoading, setProjectLoading] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationLoading, setNotificationLoading] = useState(false);
 
   const loadProjects = useCallback(async () => {
     if (status !== "authenticated") return;
@@ -43,7 +47,73 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("projectflow:cache-changed", refresh);
   }, [status, loadProjects]);
 
+  const loadNotifications = useCallback(async () => {
+    if (status !== "authenticated") return;
+    setNotificationLoading(true);
+    try {
+      const result = await api.notifications.list(30);
+      setNotifications(result.items || []);
+      setUnreadCount(result.unreadCount || 0);
+    } catch {
+      // Notifications are a convenience; keep the rest of the workspace usable if this request fails.
+    } finally { setNotificationLoading(false); }
+  }, [status]);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    void loadNotifications();
+    let source: EventSource | null = null;
+    const connect = () => {
+      source?.close();
+      const token = window.localStorage.getItem("projectflow_access_token");
+      if (!token) return;
+      const nextSource = new EventSource(`${API_BASE_URL}/realtime/users/notifications/events?token=${encodeURIComponent(token)}`);
+      source = nextSource;
+      nextSource.addEventListener("notification:created", (event) => {
+        try {
+          const message = JSON.parse((event as MessageEvent).data);
+          const notification = (message?.payload || message) as AppNotification;
+          if (!notification?._id) return;
+          setNotifications((current) => [notification, ...current.filter((item) => item._id !== notification._id)].slice(0, 30));
+          if (!notification.readAt) setUnreadCount((current) => current + 1);
+          window.dispatchEvent(new Event("projectflow:notification-changed"));
+        } catch { /* Ignore malformed events and keep the stream alive. */ }
+      });
+    };
+    connect();
+    window.addEventListener("projectflow:token-refreshed", connect);
+    const refresh = () => { void loadNotifications(); };
+    window.addEventListener("projectflow:notification-changed", refresh);
+    return () => {
+      source?.close();
+      window.removeEventListener("projectflow:token-refreshed", connect);
+      window.removeEventListener("projectflow:notification-changed", refresh);
+    };
+  }, [status, loadNotifications]);
+
   useEffect(() => { setMobileOpen(false); }, [pathname]);
+
+  const openNotification = async (notification: AppNotification) => {
+    setNotificationsOpen(false);
+    if (!notification.readAt) {
+      setNotifications((current) => current.map((item) => item._id === notification._id ? { ...item, readAt: new Date().toISOString() } : item));
+      setUnreadCount((current) => Math.max(0, current - 1));
+      try { await api.notifications.markRead(notification._id); }
+      catch { void loadNotifications(); }
+      window.dispatchEvent(new Event("projectflow:notification-changed"));
+    }
+    if (notification.href?.startsWith("/")) router.push(notification.href);
+  };
+
+  const markAllNotificationsRead = async () => {
+    try {
+      await api.notifications.markAllRead();
+      const readAt = new Date().toISOString();
+      setNotifications((current) => current.map((item) => ({ ...item, readAt: item.readAt || readAt })));
+      setUnreadCount(0);
+      window.dispatchEvent(new Event("projectflow:notification-changed"));
+    } catch { void loadNotifications(); }
+  };
 
   const search = (event: React.FormEvent) => {
     event.preventDefault();
@@ -113,6 +183,32 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <form onSubmit={search} className="relative hidden w-full max-w-[380px] sm:block"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#706d7d]"/><input className="h-10 w-full rounded-xl border border-[#efedf5] bg-[#faf9fd] pl-9 pr-14 text-[12px] outline-none transition focus:border-[#d3cdfb] focus:bg-white" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search projects..."/><span className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md border border-[#e9e6f1] bg-white px-1.5 py-1 text-[9px] font-[750] text-[#706d7d]">↵</span></form>
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
           <div className="hidden items-center gap-1.5 rounded-xl bg-[#f5f3ff] px-3 py-2 text-[10px] font-[750] text-[#6b5cda] lg:flex"><span className="h-1.5 w-1.5 rounded-full bg-[#6cc4a2]"/> Personal workspace</div>
+          <div className="relative">
+            <button className="icon-btn relative h-9 w-9" title="Notifications" aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`} aria-expanded={notificationsOpen} onClick={() => { const next = !notificationsOpen; setNotificationsOpen(next); if (next) void loadNotifications(); }}>
+              <Bell size={17}/>
+              {unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-[17px] min-w-[17px] items-center justify-center rounded-full border-2 border-white bg-[#dc4057] px-1 text-[9px] font-[850] leading-none text-white">{unreadCount > 99 ? "99+" : unreadCount}</span>}
+            </button>
+            {notificationsOpen && <>
+              <button className="fixed inset-0 z-40 cursor-default" aria-label="Close notifications" onClick={() => setNotificationsOpen(false)}/>
+              <section className="absolute right-0 top-11 z-50 w-[min(92vw,390px)] overflow-hidden rounded-2xl border border-[#e9e6f2] bg-white shadow-[0_22px_70px_rgba(31,26,61,.18)]" aria-label="Notifications panel">
+                <div className="flex items-center justify-between border-b border-[#efedf5] px-4 py-3.5"><div><h2 className="text-sm font-[800] text-[#28253d]">Notifications</h2><p className="mt-0.5 text-[11px] text-[#777489]">{unreadCount ? `${unreadCount} unread update${unreadCount === 1 ? "" : "s"}` : "You're all caught up"}</p></div><button onClick={() => void markAllNotificationsRead()} disabled={!unreadCount} className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[10px] font-[750] text-[#5546c8] hover:bg-[#f4f1ff] disabled:cursor-not-allowed disabled:text-[#9a97aa]" title="Mark all as read"><CheckCheck size={13}/> Mark all read</button></div>
+                <div className="max-h-[min(65vh,440px)] overflow-y-auto">
+                  {notificationLoading && notifications.length === 0 && <div className="px-5 py-10 text-center text-xs text-[#777489]">Loading notifications…</div>}
+                  {!notificationLoading && notifications.length === 0 && <div className="px-6 py-10 text-center"><span className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f3f0ff] text-[#6557d8]"><Bell size={19}/></span><p className="mt-3 text-sm font-[750] text-[#333047]">Nothing new yet</p><p className="mx-auto mt-1 max-w-[250px] text-[11px] leading-5 text-[#777489]">Task updates, assignments, notes and project chat activity will show up here.</p></div>}
+                  {notifications.map((notification) => {
+                    const Icon = notification.type.startsWith("message") ? MessageCircle : notification.type.startsWith("note") ? FileText : notification.type.startsWith("member") ? UserPlus : notification.type.startsWith("project") ? FolderKanban : notification.type === "task_deleted" ? CircleCheck : ClipboardList;
+                    const date = notification.createdAt ? new Date(notification.createdAt) : null;
+                    const time = date && !Number.isNaN(date.getTime()) ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date) : "";
+                    return <button key={notification._id} onClick={() => void openNotification(notification)} className={`flex w-full items-start gap-3 border-b border-[#f2f0f7] px-4 py-3.5 text-left transition-colors hover:bg-[#faf9ff] ${notification.readAt ? "bg-white" : "bg-[#f8f6ff]"}`}>
+                      <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${notification.readAt ? "bg-[#f2f0f7] text-[#716d82]" : "bg-[#e9e5ff] text-[#5848cb]"}`}><Icon size={16}/></span>
+                      <span className="min-w-0 flex-1"><span className="flex items-start gap-2"><span className="flex-1 text-[12px] font-[800] leading-5 text-[#302d46]">{notification.title}</span>{!notification.readAt && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#6557e8]"/>}</span>{notification.body && <span className="mt-0.5 block line-clamp-2 text-[11px] leading-5 text-[#69667d]">{notification.body}</span>}<span className="mt-1.5 block text-[10px] text-[#858196]">{time}</span></span>
+                    </button>;
+                  })}
+                </div>
+                <div className="border-t border-[#efedf5] p-2"><Link href="/notifications" onClick={() => setNotificationsOpen(false)} className="flex items-center justify-center rounded-xl px-3 py-2.5 text-[11px] font-[800] text-[#5546c8] hover:bg-[#f4f1ff]">View all notifications</Link></div>
+              </section>
+            </>}
+          </div>
           <button className="icon-btn h-9 w-9" title="Shortcuts" onClick={() => router.push("/projects")}><Command size={16}/></button>
           <button className="icon-btn relative h-9 w-9" title="Help & guidance" onClick={() => window.open("https://github.com/abhishek-kr01/projectmgmt-backend", "_blank", "noopener,noreferrer")}><CircleHelp size={16}/></button>
           <div className="mx-1 hidden h-7 w-px bg-[#eceaf3] sm:block"/>

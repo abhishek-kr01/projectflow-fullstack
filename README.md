@@ -12,7 +12,12 @@ ProjectFlow is a responsive project-management application built with **Next.js 
 - Authentication: registration, login/logout, current user, email verification, resend verification, password reset, and password change.
 - Projects: create, list, update, delete, project membership, and member role changes.
 - Tasks: project task lists, task details, status/assignee updates, attachment uploads (up to five files per task), and subtasks.
-- Notes: project notes with create/read/update/delete workflows and project-scoped live update events.\n- Project chat: persistent project messages with edit/delete permissions, message history, and live updates over authenticated Server-Sent Events (SSE).\n- Realtime task board: project-scoped SSE events refresh connected task boards when tasks are created, updated, or deleted; no manual refresh is needed while the connection is healthy.\n- Live collaboration transport uses built-in Node/Express SSE (no extra socket dependency); clients reconnect automatically and the backend sends keep-alive heartbeats.
+- Notes: project notes with create/read/update/delete workflows and project-scoped live update events.
+- Project chat: persistent project messages with edit/delete permissions, message history, and live updates over authenticated Server-Sent Events (SSE).
+- Notifications: persistent per-user notifications for tasks/subtasks, assignments, notes, project chat, project edits, and project membership/role changes; unread badge, dropdown, inbox, mark-read, mark-all-read, and delete actions.
+- User-wide live notification stream: authenticated SSE sends newly-created notifications to the header bell even when the user is on a different page.
+- Realtime task board: project-scoped SSE events refresh connected task boards when tasks are created, updated, or deleted; no manual refresh is needed while the connection is healthy.
+- Live collaboration transport uses built-in Node/Express SSE (no extra socket dependency); clients reconnect automatically and the backend sends keep-alive heartbeats.
 - Authorization: project membership checks and role-gated write operations.
 - Responsive workspace UI: project overview, task board, team members, project notes, settings, authentication, and recovery screens.
 - One typed API client in `frontend/lib/api.ts`; the backend's TypeScript source compiles into `backend/dist` for production.
@@ -27,6 +32,7 @@ projectflow-fullstack/
 │   │   ├── db/                # MongoDB connection
 │   │   ├── middlewares/       # Auth, validation, uploads, errors
 │   │   ├── models/            # Mongoose schemas and methods
+│   │   ├── services/          # Notification delivery helpers
 │   │   ├── routes/            # Express API routes
 │   │   ├── types/             # Express request type augmentation
 │   │   ├── utils/             # Responses, errors, mail, constants, realtime event bus
@@ -150,6 +156,7 @@ If you later add a custom frontend domain, include that origin in `CORS_ORIGIN` 
 | `/forgot-password`, `/reset-password/[token]` | Password recovery | Public |
 | `/verify-email/[token]` | Email verification | Public |
 | `/dashboard` | Workspace overview | Authenticated |
+| `/notifications` | Full activity inbox, unread filter and notification management | Authenticated |
 | `/projects`, `/projects/[projectId]` | Project list and overview | Authenticated |
 | `/projects/[projectId]/tasks` | Project task board | Authenticated |
 | `/projects/[projectId]/members` | Project members and roles | Authenticated |
@@ -170,6 +177,8 @@ All routes are prefixed with `/api/v1`.
 | Tasks | `GET/POST /tasks/:projectId`, `GET/PUT/DELETE /tasks/:projectId/t/:taskId` | Authenticated; project roles apply |
 | Subtasks | `POST /tasks/:projectId/t/:taskId/subtasks`, `PUT/DELETE /tasks/:projectId/st/:subTaskId` | Authenticated; project roles apply |
 | Notes | `GET/POST /notes/:projectId`, `GET/PUT/DELETE /notes/:projectId/n/:noteId` | Authenticated; project roles apply |
+| Notifications | `GET /notifications`, `PATCH /notifications/read-all`, `PATCH /notifications/:notificationId/read`, `DELETE /notifications/:notificationId` | Authenticated; users can only access their own notifications |
+| Realtime | `GET /realtime/:projectId/events`, `GET /realtime/users/notifications/events` | Access token plus project membership for project events; authenticated user for notification stream |
 
 The API returns a consistent envelope: `{ statusCode, success, message, data }`. Errors include `success: false` and a human-readable `message`. Task statuses are canonically `todo`, `in_progress`, and `done`.
 
@@ -208,11 +217,12 @@ npm start
 The API exposes an authenticated Server-Sent Events endpoint at
 `GET /api/v1/realtime/:projectId/events?token=<access-token>`. It checks the
 access token and project membership before streaming project-scoped events.
-Task creation/update/deletion and note create/update/delete events are published
-by the API. The project task board listens for task events and reloads its
+Task/subtask creation, update, assignment and deletion; note create/update/delete; project chat activity; project edits; and membership changes are published by the API. Notification records are persisted in MongoDB, and the user-wide SSE route sends fresh notifications to the notification bell. The project task board listens for task events and reloads its
 current data. SSE is a single-server event bus: if you scale the API to multiple
 instances, move event fan-out to a shared broker (for example Redis Pub/Sub) or
 a Socket.IO adapter before scaling horizontally.
+
+The dashboard header has a notification bell with unread count and a dropdown; `/notifications` provides the full notification inbox. Notifications are sent to relevant project members except the actor who performed the action. Chat-message notifications currently go to other project members, which is suitable for an MVP but can become noisy in high-activity projects; add per-user notification preferences or mention-only options before scaling.
 
 Project chat is available under each project at **Chat**. Messages are stored in
 MongoDB and delivered live to connected project members. Message bodies are
@@ -248,3 +258,25 @@ npm run build
 ```
 
 Manually inspect `/`, `/register`, `/login`, `/forgot-password`, `/dashboard`, project/task/notes/member/chat views at desktop and mobile widths. Test CTA hover/focus/disabled states, field placeholders, badges, empty states, loading states, and errors. Automated screenshot-based contrast verification is not included, so visual QA in a browser remains necessary.
+
+
+## Notifications and live activity inbox
+
+The authenticated header includes a bell with an unread badge and a dropdown;
+`/notifications` is the full inbox. Notifications are persisted in MongoDB and
+created for task/subtask changes, assignment changes, project notes, project
+chat messages, project edits, and member/role changes. The API supports listing
+notifications, marking one or all as read, and deleting the current user's own
+notifications.
+
+The frontend listens to `GET /api/v1/realtime/users/notifications/events?token=<access-token>`
+for new notification events while authenticated. This stream uses a process-local
+EventEmitter, so it is suitable for a single backend instance only. To scale to
+multiple Render instances, publish user events through a shared broker such as
+Redis Pub/Sub and add notification retention/preferences to avoid noisy chat feeds.
+
+Local smoke test: sign in with two users in the same project in separate browser
+sessions, create/update/assign a task or send a project chat message in one, then
+confirm the other user's bell badge increments without a manual refresh. Open the
+bell, mark an item read, use Mark all read, delete an item, and verify that unread
+counts stay consistent.
