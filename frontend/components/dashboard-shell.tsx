@@ -10,7 +10,7 @@ import { Avatar, BrandMark } from "@/components/ui";
 import { ChevronDown, ChevronLeft, CircleHelp, Command, FolderKanban, LayoutDashboard, LogOut, Menu, Plus, Search, Settings2, Sparkles, X, CheckSquare } from "lucide-react";
 
 const mainNav = [
-  { label: "Overview", href: "/", icon: LayoutDashboard },
+  { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "All projects", href: "/projects", icon: FolderKanban },
   { label: "Task tracker", href: "/tasks", icon: CheckSquare },
 ];
@@ -69,10 +69,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <div className="mb-2 px-3 text-[9px] font-[850] uppercase tracking-[.15em] text-[#aaa7ba]">Workspace</div>
       <nav className="space-y-1">
         {mainNav.map((item) => {
-          const active = item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return <Link key={item.href} href={item.href} className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[12px] font-[650] transition-colors ${active ? "bg-[#f0eeff] text-[#5b4cda]" : "text-[#77758c] hover:bg-[#f8f7fc] hover:text-[#302d46]"}`}>
-            <Icon size={17} strokeWidth={active ? 2.3 : 1.9} /><span className="flex-1">{item.label}</span>{item.label === "My tasks" && <span className="rounded-md bg-white/80 px-1.5 py-0.5 text-[9px] font-[800] text-[#8c87a7]">↗</span>}
+            <Icon size={17} strokeWidth={active ? 2.3 : 1.9} /><span className="flex-1">{item.label}</span>{item.label === "Task tracker" && <span className="rounded-md bg-white/80 px-1.5 py-0.5 text-[9px] font-[800] text-[#8c87a7]">↗</span>}
           </Link>;
         })}
       </nav>

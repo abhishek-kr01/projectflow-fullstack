@@ -17,11 +17,11 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => { if (status === "authenticated") router.replace("/"); }, [status, router]);
+  useEffect(() => { if (status === "authenticated") router.replace("/dashboard"); }, [status, router]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
-    try { await login(email.trim(), password); router.replace("/"); }
+    try { await login(email.trim(), password); router.replace("/dashboard"); }
     catch (err) { setError(err instanceof Error ? err.message : "Unable to sign in. Please try again."); }
     finally { setBusy(false); }
   }

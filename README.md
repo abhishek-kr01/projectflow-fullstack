@@ -7,12 +7,14 @@ ProjectFlow is a responsive project-management application built with **Next.js 
 
 ## Features
 
+- Public landing page: responsive navbar, product preview, feature overview, how-it-works section, FAQ, signup/login calls to action, and footer.
+- Authenticated dashboard routing: `/dashboard` is the workspace overview; `/` remains public.
 - Authentication: registration, login/logout, current user, email verification, resend verification, password reset, and password change.
 - Projects: create, list, update, delete, project membership, and member role changes.
 - Tasks: project task lists, task details, status/assignee updates, attachment uploads (up to five files per task), and subtasks.
 - Notes: project notes with create/read/update/delete workflows.
 - Authorization: project membership checks and role-gated write operations.
-- Responsive Next.js UI: dashboard, project overview, tasks board, team members, notes, settings, auth and recovery screens.
+- Responsive workspace UI: project overview, task board, team members, project notes, settings, authentication, and recovery screens.
 - One typed API client in `frontend/lib/api.ts`; the backend's TypeScript source compiles into `backend/dist` for production.
 
 ## Repository structure
@@ -34,7 +36,8 @@ projectflow-fullstack/
 │   ├── package.json
 │   └── tsconfig.json
 ├── frontend/
-│   ├── app/                    # Next.js App Router pages
+│   ├── app/                    # Next.js App Router pages (public landing page at /)
+│   │   └── (workspace)/dashboard/page.tsx  # Authenticated overview route at /dashboard
 │   ├── components/             # Shared UI components
 │   ├── lib/                    # API client, auth context, types
 │   ├── .env.example
@@ -76,13 +79,13 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The frontend environment variable should be:
+Open `http://localhost:3000` for the public landing page. Sign in or register from there; the authenticated workspace overview is available at `/dashboard`. The frontend environment variable should be:
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
 ```
 
-The app requires a reachable API and MongoDB; project and task data are loaded from the API rather than seeded into fake frontend data.
+The app requires a reachable API and MongoDB for real project/task data; the dashboard does not seed fake workspace records.
 
 ## Backend environment variables
 
@@ -138,6 +141,21 @@ The backend build compiles `backend/src/**/*.ts` to `backend/dist/**/*.js`. Rend
 
 If you later add a custom frontend domain, include that origin in `CORS_ORIGIN` and set `FRONTEND_URL` to the canonical domain. `CORS_ORIGIN` is a comma-separated list, for example `https://your-app.vercel.app,https://app.yourdomain.com`.
 
+## Frontend route map
+
+| Route | Purpose | Access |
+|---|---|---|
+| `/` | Public landing page with navbar, hero/product preview, feature sections, workflow, FAQ, CTA, and footer | Public |
+| `/login`, `/register` | Sign-in and account creation | Public |
+| `/forgot-password`, `/reset-password/[token]` | Password recovery | Public |
+| `/verify-email/[token]` | Email verification | Public |
+| `/dashboard` | Workspace overview | Authenticated |
+| `/projects`, `/projects/[projectId]` | Project list and overview | Authenticated |
+| `/projects/[projectId]/tasks` | Project task board | Authenticated |
+| `/projects/[projectId]/members` | Project members and roles | Authenticated |
+| `/projects/[projectId]/notes` | Project notes | Authenticated |
+| `/tasks`, `/settings` | Task tracker and account settings | Authenticated |
+
 ## API routes
 
 All routes are prefixed with `/api/v1`.
@@ -162,7 +180,7 @@ The API returns a consistent envelope: `{ statusCode, success, message, data }`.
 - **Token storage:** the frontend currently keeps bearer access and refresh tokens in browser `localStorage` to support API calls across separate Vercel and Render origins. This is functional for the current project but increases impact if the frontend ever has an XSS vulnerability. For a security-hardened public service, move session management to a same-site, `httpOnly` cookie/BFF architecture and add CSRF protection where applicable.
 - **CORS and HTTPS:** use HTTPS in production and configure the exact frontend origins in Render. Never use `*` with credentialed CORS.
 - **Existing database migrations:** this project keeps Mongoose schemas in TypeScript. If connecting an existing MongoDB database, review any old unique indexes before launch; MongoDB does not automatically remove obsolete indexes when schema declarations change.
-- **Verification:** all TypeScript/TSX files passed a syntax-transpilation check in the build environment. A dependency-aware `tsc` check and production builds could not be completed here because the required npm packages were not installed and npm registry installation timed out. Before merging or deploying, run `npm install`, `npm run typecheck`, and `npm run build` in `backend`, then run `npm install` and `npm run build` in `frontend`. Do not treat source packaging alone as proof of a successful cloud deployment.
+- **Verification:** all TypeScript/TSX files passed a syntax-transpilation check in the build environment. A dependency-aware `tsc` check and production builds could not be completed here because the required npm packages were not installed and npm registry installation timed out. Route inspection confirmed one public root page, one `/dashboard` overview, and no duplicate normalized page routes after moving the dashboard. Before merging or deploying, run `npm install`, `npm run typecheck`, and `npm run build` in `backend`, then run `npm install` and `npm run build` in `frontend`. Do not treat source packaging alone as proof of a successful cloud deployment.
 
 ## Useful scripts
 
