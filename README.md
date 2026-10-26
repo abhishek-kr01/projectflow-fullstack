@@ -1,293 +1,266 @@
-# ProjectFlow — Full-Stack Project Management
+# ProjectFlow
 
-ProjectFlow is a responsive team project-management application with projects, tasks, subtasks, team members, notes, project chat, notifications, presence, and live updates. The repository is a monorepo with a **Next.js + TypeScript frontend** and an **Express + TypeScript API** backed by **MongoDB/Mongoose**.
-
-> **Project status:** active MVP / production-hardening in progress. The codebase includes the main workflows, but a complete dependency-installed production build and full end-to-end test suite must pass in your environment before describing the application as production-certified. Read [Testing and known limitations](#testing-and-known-limitations).
-
----
+ProjectFlow is a full-stack project management and team collaboration application. It combines project organization, task tracking, project notes, team chat, presence, and in-app notifications in a responsive workspace.
 
 ## Contents
 
 - [Features](#features)
 - [Technology stack](#technology-stack)
-- [Architecture](#architecture)
-- [Repository structure](#repository-structure)
-- [Requirements](#requirements)
+- [Application architecture](#application-architecture)
+- [Project structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Environment configuration](#environment-configuration)
 - [Run locally](#run-locally)
-- [Environment variables](#environment-variables)
-- [Frontend routes](#frontend-routes)
-- [API reference](#api-reference)
-- [Authentication and authorization](#authentication-and-authorization)
-- [Realtime, chat, presence, and notifications](#realtime-chat-presence-and-notifications)
-- [Email and password recovery](#email-and-password-recovery)
-- [File uploads](#file-uploads)
-- [Testing and known limitations](#testing-and-known-limitations)
-- [Deploy to Render and Vercel](#deploy-to-render-and-vercel)
+- [Application routes](#application-routes)
+- [Backend API reference](#backend-api-reference)
+- [Roles and permissions](#roles-and-permissions)
+- [Realtime behavior](#realtime-behavior)
+- [Email configuration](#email-configuration)
+- [Task attachments](#task-attachments)
+- [Testing and verification](#testing-and-verification)
+- [Deploy the backend to Render](#deploy-the-backend-to-render)
+- [Deploy the frontend to Vercel](#deploy-the-frontend-to-vercel)
 - [Troubleshooting](#troubleshooting)
+- [Current limitations](#current-limitations)
 
 ## Features
 
-### Workspace and projects
+### Authentication and account management
 
-- Public responsive landing page with navigation, product overview, features, workflow, FAQ, calls to action, and footer.
-- Authenticated workspace dashboard and global task tracker.
-- Create, list, view, update, and delete projects.
-- Add existing registered users to projects and manage their project roles.
-- Project overview, project members, notes, tasks, and chat tabs.
+- User registration and login.
+- JWT access and refresh token handling.
+- Email verification and verification resend flow.
+- Forgot-password and reset-password flows.
+- Change-password and logout endpoints.
+- Protected application routes and authenticated API requests.
+
+Email flows require a working SMTP configuration. See [Email configuration](#email-configuration).
+
+### Projects and team management
+
+- Create and view projects.
+- Edit or delete projects according to the configured role permissions.
+- Add existing users to a project.
+- View project members and their roles.
+- Update member roles or remove members according to authorization rules.
+- Check project membership on protected operations.
 
 ### Tasks and subtasks
 
-- Create and list project tasks.
-- Update task details, status, and assignee according to role permissions.
-- Delete tasks subject to server-side authorization.
-- Create, update, and delete subtasks.
-- Task status values are `todo`, `in_progress`, and `done`.
-- Members can update the status of an assigned task, but cannot use that permission to change task title, description, or assignment. Administrative task operations are role-restricted.
-- Task attachments are accepted via multipart form data; see [File uploads](#file-uploads).
+- Create, list, view, update, and delete tasks according to the role policy.
+- Assign tasks to project members.
+- Track task status using `todo`, `in_progress`, and `done`.
+- Create and update subtasks.
+- Attach files while creating tasks.
+- Receive project events when tasks or subtasks change.
 
-### Collaboration
+### Project notes
 
-- Project-wide chat with persisted message history.
-- Reply-to-message support and `@username` mentions.
-- Message delivery/read receipts and online/offline presence indicators.
-- Project notes with create, read, update, and delete operations.
-- In-app notification bell, unread count, dropdown, and `/notifications` inbox.
-- Notifications for relevant project, member, task/subtask, note, and chat activity.
-- Live UI updates over authenticated Server-Sent Events (SSE).
+- Create, list, view, and update notes in a project.
+- Delete notes according to the configured permission rules.
+- Refresh connected project views when a note changes.
 
-### Account and security features
+### Project chat
 
-- Registration and login/logout.
-- Current-user/session retrieval and access-token refresh.
-- Email verification and resend verification flow.
-- Forgot-password and reset-password flows.
-- Change-password endpoint.
-- Request validation, centralized API errors, project membership checks, and protected routes.
+- Persistent messages stored in MongoDB.
+- Reply to a message in the same project conversation.
+- Mention project members using `@username`.
+- Edit or delete messages according to the message-author and project-role rules.
+- Delivery and read receipts with single, double, and read ticks in the UI.
+- Live messages and receipt updates through the project event stream.
 
----
+### Notifications and presence
+
+- Notification bell and a dedicated notification inbox.
+- Unread count and notification list.
+- Mark one notification as read, mark all as read, and delete notifications.
+- Notifications for supported project, task, chat, notes, membership, and assignment events.
+- Online/offline indicators and last-seen information based on browser-session heartbeats.
+- Live event delivery to connected browsers without manual refresh while the realtime connection is healthy.
+
+### Responsive interface
+
+- Public landing page and authentication pages.
+- Workspace dashboard and task tracker.
+- Project overview, tasks, members, notes, and chat pages.
+- Account settings and notification inbox.
+- Responsive layouts for desktop and smaller screens.
 
 ## Technology stack
 
-| Layer | Technology | Responsibility |
+| Area | Technology | Purpose |
 |---|---|---|
-| Frontend | Next.js App Router, React, TypeScript | Pages, UI, routing, authenticated workspace |
-| Styling | Tailwind CSS 4 | Responsive design and reusable visual styling |
-| Icons | Lucide React | Interface icons |
-| API | Node.js, Express 5, TypeScript | REST endpoints and SSE streams |
-| Database | MongoDB, Mongoose | Users, projects, memberships, tasks, notes, messages, notifications |
-| Auth | JWT, bcrypt, HTTP cookies where used by the API | Authentication and session refresh |
-| Live transport | SSE (`EventSource`) + normal HTTP APIs | Server-to-browser event delivery; client writes remain HTTP requests |
-| Email | Nodemailer via SMTP | Verification and password-recovery emails |
-| Frontend hosting | Vercel | Next.js deployment |
-| Backend hosting | Render | Express service deployment |
+| Frontend framework | Next.js App Router | Pages, layouts, routing, and frontend build |
+| UI | React | Interactive components and local UI state |
+| Frontend language | TypeScript | Type checking and maintainable interfaces |
+| Styling | Tailwind CSS | Responsive layouts and UI styling |
+| Backend runtime | Node.js | Runs the API server |
+| Backend framework | Express 5 | HTTP routes, middleware, and controllers |
+| Backend language | TypeScript | Typed backend services and request handling |
+| Database | MongoDB | Persistent application data |
+| Database layer | Mongoose | Schemas, models, queries, and population |
+| Authentication | JSON Web Tokens (JWT) | Authenticated API requests and stream-token flow |
+| Realtime transport | Server-Sent Events (SSE) | Server-to-browser events over HTTP |
+| Email | Nodemailer over SMTP | Verification and password-reset emails |
+| Validation | express-validator | Request validation on supported endpoints |
+| Uploads | Multer | Multipart task attachment handling |
+| Icons | lucide-react | Frontend icons |
 
-The application does not currently require a managed realtime service such as Pusher or Ably. Its current realtime fan-out is process-local; see the limitations below before running multiple API instances.
+## Application architecture
 
-## Architecture
+The frontend and backend are separate applications and can be run and deployed independently.
 
-The backend follows a layered structure. Route files declare endpoints and middleware; controllers orchestrate HTTP requests/responses; services implement business rules and persistence workflows; Mongoose models define persisted data.
+### Backend request flow
 
-```text
-Browser / Next.js
-   |
-   | REST requests (JSON / multipart)
-   v
-Express routes
-   |
-   v
-Authentication / validation / project-access middleware
-   |
-   v
-Controllers
-   |
-   v
-Services -----------------------> MongoDB / Mongoose
-   |
-   +---- publish domain events --> in-process event bus
-                                    |
-                                    v
-                              SSE controller/stream
-                                    |
-                                    v
-                             Connected browsers
-```
+A typical API operation follows this sequence:
 
-- **REST APIs** handle reads and writes.
-- **MongoDB** is the persistent source of truth for application data.
-- **SSE** pushes events to connected browsers without a manual page refresh.
-- **The event bus is in-memory** in the current implementation. It is suitable for a single backend process; horizontal scaling requires a shared broker and shared presence storage.
-- **Email is sent through SMTP**. A queue such as BullMQ is not currently part of this repository.
+1. A route maps the HTTP method and URL to middleware and a controller.
+2. Authentication middleware verifies the user where required.
+3. Validation middleware checks request input on routes that define validators.
+4. Project authorization checks membership and the role allowed to perform the operation.
+5. The controller handles HTTP-specific input and response formatting.
+6. A service implements business rules and performs data operations.
+7. Mongoose models read or write MongoDB records.
+8. For supported changes, the service publishes an event and/or creates notifications.
+9. The API returns a JSON response using the shared response/error conventions.
 
-### Backend source layout
+### Realtime flow
 
-```text
-backend/src/
-├── controllers/    # HTTP request/response handlers
-├── db/             # MongoDB connection
-├── middlewares/    # Authentication, validation, uploads, error handling, SSE auth
-├── models/         # Mongoose schemas
-├── routes/         # Route declarations and middleware wiring
-├── services/       # Business logic, access policy, notifications, presence, realtime
-├── types/          # Express request type augmentation
-├── utils/          # API response/error, mail, SSE helpers, constants
-├── validators/     # Request validation rules
-├── app.ts          # Express middleware and route registration
-└── index.ts        # Environment loading, database startup, server lifecycle
-```
+ProjectFlow uses ordinary HTTP APIs for commands such as creating a message or changing task status. The backend persists the change first, then publishes an in-process event to connected SSE clients. The frontend receives the event and updates the relevant state or reloads the affected data.
 
-### Frontend source layout
+Two stream scopes are used:
+
+- **Project stream:** task, note, member, chat, receipt, and other project-scoped events.
+- **User notification stream:** notifications for the currently authenticated user, regardless of the project page currently open.
+
+A short-lived realtime stream token is requested through the authenticated API and used to authorize browser event streams. Project access is checked by the backend before a project stream is opened.
+
+### Why SSE is used
+
+Server-Sent Events are a browser-supported way for the server to stream events to a client over HTTP. The browser uses `EventSource` to receive server events, while writes continue to use regular HTTP requests. This keeps the current architecture straightforward for task updates, notifications, message events, and presence refreshes.
+
+SSE is one-way from server to browser. The browser sends chat messages, receipt updates, and presence heartbeats through normal API requests.
+
+## Project structure
 
 ```text
-frontend/
-├── app/            # Next.js routes (public landing page at /)
-│   └── (workspace)/
-│       ├── dashboard/
-│       ├── notifications/
-│       ├── projects/
-│       ├── tasks/
-│       └── settings/
-├── components/     # Auth shell, workspace shell, shared UI
-├── lib/            # API client, auth context, types, authenticated SSE, project realtime bridge
-└── public/         # Static assets, if any
+projectflow-fullstack/
+├── backend/
+│   ├── public/images/              # Local task-upload directory
+│   ├── src/
+│   │   ├── controllers/            # HTTP request/response orchestration
+│   │   ├── db/                     # MongoDB connection
+│   │   ├── middlewares/            # Authentication, stream auth, upload, validation, errors
+│   │   ├── models/                 # Mongoose schemas and models
+│   │   ├── routes/                 # API route definitions
+│   │   ├── services/               # Business logic and data operations
+│   │   ├── types/                  # Express and backend TypeScript types
+│   │   ├── utils/                  # API responses, errors, mail, SSE, and shared helpers
+│   │   ├── validators/             # Request validation rules
+│   │   ├── app.ts                  # Express app and route mounting
+│   │   └── index.ts                # Environment loading, DB connection, server startup
+│   ├── tests/                      # Focused backend tests
+│   ├── .env.example
+│   ├── package.json
+│   ├── package-lock.json
+│   └── tsconfig.json
+├── frontend/
+│   ├── app/                        # Next.js pages and layouts
+│   ├── components/                 # Shared UI, auth, and dashboard components
+│   ├── lib/                        # API client, auth context, types, SSE helpers
+│   ├── public/                     # Static frontend assets
+│   ├── .env.example
+│   ├── package.json
+│   ├── package-lock.json
+│   └── tsconfig.json
+└── README.md
 ```
 
----
+### Backend layer responsibilities
 
-## Requirements
+| Layer | Responsibility |
+|---|---|
+| `routes/` | Define endpoints and connect middleware/controllers |
+| `controllers/` | Parse HTTP input, call services, and return responses |
+| `services/` | Apply business rules, data changes, authorization-related workflows, and event publication |
+| `models/` | Define MongoDB document structure and indexes |
+| `middlewares/` | Authentication, stream-token authentication, validation, uploads, and error handling |
+| `validators/` | Validate supported request bodies and parameters |
+| `utils/` | Shared low-level helpers such as API errors, API responses, mail and SSE handling |
 
-- Node.js **20.9 or newer** (Node 22 LTS is a good choice).
-- npm.
+## Prerequisites
+
+- **Node.js 20.9 or newer**.
+- npm, which is included with Node.js.
 - MongoDB running locally or a MongoDB Atlas database.
-- SMTP credentials for real verification and password-recovery email delivery.
-- Git for version control.
+- SMTP credentials if you want to send real verification and password-reset emails.
+- A modern browser for the Next.js frontend and SSE functionality.
 
-Use a separate terminal for the backend and frontend.
+Check your installed versions:
 
-## Run locally
+```bash
+node --version
+npm --version
+```
 
-### 1. Get the code
+## Environment configuration
 
-Clone your repository or extract your project folder, then open PowerShell/terminal in the repository root.
+The repository contains example environment files. Copy them to local environment files and replace placeholders with your actual values. Do not put real keys in frontend environment variables.
 
-### 2. Configure and start the backend
+### Backend environment: `backend/.env`
 
-PowerShell:
+Create the file from `backend/.env.example`.
+
+**Windows PowerShell**
 
 ```powershell
 cd backend
 Copy-Item .env.example .env
-npm ci
 ```
 
-macOS/Linux:
+**macOS/Linux**
 
 ```bash
 cd backend
 cp .env.example .env
-npm ci
 ```
 
-Open `backend/.env`. At minimum, set a valid `MONGO_URI`, `ACCESS_TOKEN_SECRET`, and `REFRESH_TOKEN_SECRET`; set a separate `REALTIME_TOKEN_SECRET` as well. Use long, unique random secrets—do not leave the example values in place.
+Configure these values:
 
-Start the API:
-
-```bash
-npm run dev
-```
-
-The API uses port `8000` locally by default. Confirm health at:
-
-`http://localhost:8000/api/v1/healthcheck`
-
-A successful response should indicate that the API is healthy. Database connectivity is logged by the backend when it starts.
-
-### 3. Configure and start the frontend
-
-Open a second terminal at the repository root.
-
-PowerShell:
-
-```powershell
-cd frontend
-Copy-Item .env.example .env.local
-npm ci
-```
-
-macOS/Linux:
-
-```bash
-cd frontend
-cp .env.example .env.local
-npm ci
-```
-
-Set the API URL in `frontend/.env.local`:
-
-```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
-```
-
-Start the frontend:
-
-```bash
-npm run dev
-```
-
-Open `http://localhost:3000`.
-
-### 4. Basic local smoke test
-
-1. Open the landing page and register a user.
-2. Verify email behavior using configured SMTP or the local email-preview logs.
-3. Log in and create a project.
-4. Register a second user in a separate browser profile, then add that user to the project.
-5. Create a task and assign it to the second user.
-6. Log in as the member and verify that they can change the assigned task status but not edit restricted task fields.
-7. Open the project in two browser sessions and test chat, replies, mentions, receipts, online presence, notes, and notifications.
-8. Test logout and password recovery.
-
----
-
-## Environment variables
-
-### Backend — `backend/.env`
-
-Start from `backend/.env.example`.
-
-| Variable | Required | Purpose / notes |
+| Variable | Required/use | Description |
 |---|---|---|
-| `NODE_ENV` | Recommended | Use `development` locally and `production` on Render. |
-| `PORT` | Local default | Local default is `8000`; Render sets a service port. |
-| `MONGO_URI` | Yes | MongoDB connection string, local or Atlas. |
-| `ACCESS_TOKEN_SECRET` | Yes | Random secret used to sign access tokens. |
-| `ACCESS_TOKEN_EXPIRY` | Recommended | Access token lifetime; example is `15m`. |
-| `REFRESH_TOKEN_SECRET` | Yes | Different random secret for refresh tokens. |
-| `REFRESH_TOKEN_EXPIRY` | Recommended | Refresh token lifetime; example is `7d`. |
-| `REALTIME_TOKEN_SECRET` | Strongly recommended | Dedicated secret for short-lived, scope-limited SSE stream tokens. The implementation may fall back to the access secret for compatibility, but production should set a separate value. |
-| `FRONTEND_URL` | Production | Canonical frontend origin, such as `https://your-app.vercel.app`; no trailing slash. |
-| `CORS_ORIGIN` | Yes for browser use | Comma-separated list of exact allowed frontend origins. Example: `http://localhost:3000`. Do not use `*` with credentialed CORS. |
-| `SERVER_URL` | Recommended | Public API origin, such as `https://your-api.onrender.com`; used when constructing public file URLs. |
-| `FORGOT_PASSWORD_REDIRECT_URL` | Email recovery | Frontend reset route base, such as `http://localhost:3000/reset-password`. |
-| `MAILTRAP_SMTP_HOST` | For email delivery | SMTP hostname from the configured provider. Despite the variable name, use the SMTP values for the provider you configure. |
-| `MAILTRAP_SMTP_PORT` | For email delivery | SMTP port from your provider, commonly `587` or `465`. |
-| `MAILTRAP_SMTP_USER` | For email delivery | SMTP username. |
-| `MAILTRAP_SMTP_PASS` | For email delivery | SMTP password. Keep secret. |
-| `MAIL_FROM` | Recommended for email | Sender name/address accepted by your SMTP provider. |
+| `NODE_ENV` | Recommended | `development` locally; use `production` on the hosted backend |
+| `PORT` | Optional | API port; defaults to `8000` in the current configuration |
+| `FRONTEND_URL` | Required for links | Base URL used in links sent to users; local value is `http://localhost:3000` |
+| `CORS_ORIGIN` | Required | Exact browser origin(s) permitted to call the API, separated by commas if more than one |
+| `SERVER_URL` | Required for links | Base URL of the backend API/server |
+| `MONGO_URI` | Required | MongoDB connection string |
+| `ACCESS_TOKEN_SECRET` | Required | Long, random secret used to sign access tokens |
+| `ACCESS_TOKEN_EXPIRY` | Required/configurable | Access-token lifetime, for example `15m` |
+| `REFRESH_TOKEN_SECRET` | Required | A different long, random secret for refresh tokens |
+| `REFRESH_TOKEN_EXPIRY` | Required/configurable | Refresh-token lifetime, for example `7d` |
+| `REALTIME_TOKEN_SECRET` | Recommended | Dedicated secret used to sign short-lived realtime stream tokens |
+| `FORGOT_PASSWORD_REDIRECT_URL` | Required for reset links | Frontend route that receives password-reset tokens |
+| `MAILTRAP_SMTP_HOST` | Optional until email is tested | SMTP server hostname; the variable name is retained by the current project |
+| `MAILTRAP_SMTP_PORT` | Optional until email is tested | SMTP port, commonly `587` for STARTTLS where supported |
+| `MAILTRAP_SMTP_USER` | Optional until email is tested | SMTP username |
+| `MAILTRAP_SMTP_PASS` | Optional until email is tested | SMTP password or SMTP credential |
+| `MAIL_FROM` | Required for email sending | Sender display name and email address |
 
-Example local configuration (replace placeholder values with real values):
+Example local values (replace secrets and SMTP values with your own):
 
 ```env
 NODE_ENV=development
 PORT=8000
 FRONTEND_URL=http://localhost:3000
-CORS_ORIGIN=http://localhost:3000,http://127.0.0.1:3000
+CORS_ORIGIN=http://localhost:3000
 SERVER_URL=http://localhost:8000
 MONGO_URI=mongodb://127.0.0.1:27017/projectflow
 ACCESS_TOKEN_SECRET=replace-with-a-long-random-secret
 ACCESS_TOKEN_EXPIRY=15m
 REFRESH_TOKEN_SECRET=replace-with-a-different-long-random-secret
 REFRESH_TOKEN_EXPIRY=7d
-REALTIME_TOKEN_SECRET=replace-with-a-third-long-random-secret
+REALTIME_TOKEN_SECRET=replace-with-another-long-random-secret
 FORGOT_PASSWORD_REDIRECT_URL=http://localhost:3000/reset-password
 MAILTRAP_SMTP_HOST=
 MAILTRAP_SMTP_PORT=587
@@ -296,383 +269,414 @@ MAILTRAP_SMTP_PASS=
 MAIL_FROM=ProjectFlow <no-reply@example.com>
 ```
 
-### Frontend — `frontend/.env.local`
+Use three different random values for the access-token, refresh-token, and realtime-token secrets. The strings in this example are placeholders and must not be used as production secrets. Keep local `.env` files out of version control.
+
+### Frontend environment: `frontend/.env.local`
+
+Create the file from `frontend/.env.example`.
+
+**Windows PowerShell**
+
+```powershell
+cd frontend
+Copy-Item .env.example .env.local
+```
+
+**macOS/Linux**
+
+```bash
+cd frontend
+cp .env.example .env.local
+```
+
+Set the full API URL, including the versioned route prefix:
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
 ```
 
-Only put public, browser-safe values in variables prefixed by `NEXT_PUBLIC_`. Never put database URIs, token secrets, SMTP passwords, or provider API keys in frontend environment variables.
+Any environment variable beginning with `NEXT_PUBLIC_` is exposed to browser code. Only put public configuration values there; never put MongoDB credentials, SMTP passwords, or signing secrets in frontend variables.
 
-### Environment and secrets checklist
+## Run locally
 
-- Do not commit `.env`, `.env.local`, passwords, access tokens, or private API keys.
-- `.env.example` files may be committed because they contain placeholders only.
-- Use different access, refresh, and realtime signing secrets in production.
-- Use HTTPS domains in production and configure exact origins in `CORS_ORIGIN`.
-- After changing a Vercel `NEXT_PUBLIC_` variable, rebuild/redeploy the frontend.
+Run the backend and frontend in separate terminals.
 
----
+### 1. Install and start the backend
 
-## Frontend routes
+From the repository root:
 
-| Route | Purpose | Access |
-|---|---|---|
-| `/` | Public landing page | Public |
-| `/login` | Sign in | Public |
-| `/register` | Create account | Public |
-| `/forgot-password` | Request password reset | Public |
-| `/reset-password/[token]` | Set a new password using reset token | Public with valid token |
-| `/verify-email/[token]` | Verify email | Public with valid token |
-| `/dashboard` | Workspace overview | Authenticated |
-| `/notifications` | Notification inbox and unread management | Authenticated |
-| `/projects` | Browse projects | Authenticated |
-| `/projects/[projectId]` | Project overview | Authenticated project member |
-| `/projects/[projectId]/tasks` | Project Kanban/task list | Authenticated project member |
-| `/projects/[projectId]/members` | Project members and roles | Authenticated project member; write actions role-restricted |
-| `/projects/[projectId]/notes` | Project notes | Authenticated project member |
-| `/projects/[projectId]/chat` | Project chat | Authenticated project member |
-| `/tasks` | Cross-project task tracker | Authenticated |
-| `/settings` | Account settings | Authenticated |
-
----
-
-## API reference
-
-Base URL: `http://localhost:8000/api/v1` locally. Production base URL is your Render service origin followed by `/api/v1`.
-
-The API uses JSON responses with a consistent response envelope where applicable:
-
-```json
-{
-  "statusCode": 200,
-  "success": true,
-  "message": "Request completed.",
-  "data": {}
-}
+```powershell
+cd backend
+npm ci
+npm run dev
 ```
 
-The exact `data` shape depends on the endpoint. Error responses set `success` to `false` and include a message.
+If you have not created `backend/.env`, copy `.env.example` first and configure MongoDB and the token secrets. `npm ci` uses the backend lockfile to install the recorded dependency versions.
 
-### Health
+Expected startup behavior includes a successful MongoDB connection and the API listening on the configured port.
 
-| Method | Endpoint | Auth | Purpose |
-|---|---|---|---|
-| `GET` | `/healthcheck` | No | API health check |
+Check the health endpoint:
 
-### Authentication and account
+`http://localhost:8000/api/v1/healthcheck`
+
+The root API path also returns basic service information at `http://localhost:8000/`.
+
+### 2. Install and start the frontend
+
+Open another terminal from the repository root:
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+If you have not created `frontend/.env.local`, copy `.env.example` first and set `NEXT_PUBLIC_API_BASE_URL`.
+
+Open the app at `http://localhost:3000`.
+
+### 3. First use
+
+1. Register a user using `/register`.
+2. If email verification is enabled and SMTP is configured, use the verification link received by email. If email is not configured, email-based flows cannot be fully tested through a real inbox.
+3. Log in at `/login`.
+4. Create a project and add another registered user as a project member.
+5. Open the project pages to test tasks, notes, members, chat, and notifications.
+6. For realtime behavior, open the same project using two different browser sessions signed in as different project members.
+
+## Application routes
+
+| Route | Page |
+|---|---|
+| `/` | Landing page |
+| `/login` | Sign in |
+| `/register` | Account registration |
+| `/forgot-password` | Request password reset |
+| `/reset-password/[token]` | Set a new password using a reset token |
+| `/verify-email/[token]` | Verify an email address |
+| `/dashboard` | Workspace overview |
+| `/projects` | Project list |
+| `/projects/[projectId]` | Project overview |
+| `/projects/[projectId]/tasks` | Project task board |
+| `/projects/[projectId]/members` | Project members and roles |
+| `/projects/[projectId]/notes` | Project notes |
+| `/projects/[projectId]/chat` | Project conversation |
+| `/tasks` | Task tracker |
+| `/notifications` | Notification inbox |
+| `/settings` | Account settings |
+
+## Backend API reference
+
+Local base URL:
+
+`http://localhost:8000/api/v1`
+
+All routes below are relative to that base URL. Routes marked as authenticated require the appropriate access token. Project endpoints additionally check project membership and role permissions.
+
+### Health check
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `POST` | `/auth/register` | Register an account |
-| `POST` | `/auth/login` | Login |
-| `POST` | `/auth/logout` | Logout (authenticated) |
-| `POST` | `/auth/current-user` | Get current user (authenticated) |
-| `POST` | `/auth/refresh-token` | Refresh access token using configured refresh mechanism |
-| `GET` | `/auth/verify-email/:verificationToken` | Verify email |
-| `POST` | `/auth/resend-email-verification` | Resend verification email (authenticated) |
-| `POST` | `/auth/forgot-password` | Request password-reset email |
-| `POST` | `/auth/reset-password/:resetToken` | Reset password |
-| `POST` | `/auth/change-password` | Change password (authenticated) |
+| `GET` | `/healthcheck` | Check API health |
 
-### Projects and members
+### Authentication — `/auth`
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/projects` | List the current user's projects |
+| `POST` | `/auth/register` | Create a user account |
+| `POST` | `/auth/login` | Authenticate a user |
+| `GET` | `/auth/verify-email/:verificationToken` | Verify an email token |
+| `POST` | `/auth/refresh-token` | Request a refreshed access token using the configured refresh flow |
+| `POST` | `/auth/forgot-password` | Request a password-reset email |
+| `POST` | `/auth/reset-password/:resetToken` | Reset password using a token |
+| `POST` | `/auth/logout` | Log out an authenticated user |
+| `POST` | `/auth/current-user` | Get the current user |
+| `POST` | `/auth/change-password` | Change the current user's password |
+| `POST` | `/auth/resend-email-verification` | Resend verification email |
+
+### Projects and members — `/projects`
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/projects` | List projects available to the user |
 | `POST` | `/projects` | Create a project |
-| `GET` | `/projects/:projectId` | Get a project the user can access |
-| `PUT` | `/projects/:projectId` | Update project details; role-restricted |
-| `DELETE` | `/projects/:projectId` | Delete a project; role-restricted |
+| `GET` | `/projects/:projectId` | Fetch project details |
+| `PUT` | `/projects/:projectId` | Update project details, subject to the configured role policy |
+| `DELETE` | `/projects/:projectId` | Delete a project, subject to the configured role policy |
 | `GET` | `/projects/:projectId/members` | List project members |
-| `POST` | `/projects/:projectId/members` | Add a registered user to the project; admin-restricted |
-| `PUT` | `/projects/:projectId/members/:userId` | Update member role; admin-restricted |
-| `DELETE` | `/projects/:projectId/members/:userId` | Remove a member; admin-restricted |
+| `POST` | `/projects/:projectId/members` | Add registered users to a project |
+| `PUT` | `/projects/:projectId/members/:userId` | Update a member role |
+| `DELETE` | `/projects/:projectId/members/:userId` | Remove a member |
 
-### Tasks and subtasks
+### Tasks and subtasks — `/tasks`
 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET` | `/tasks/:projectId` | List project tasks |
-| `POST` | `/tasks/:projectId` | Create a task; task management roles required |
-| `GET` | `/tasks/:projectId/t/:taskId` | Get task details |
-| `PUT` | `/tasks/:projectId/t/:taskId` | Update task; a member can update status only for an assigned task |
-| `DELETE` | `/tasks/:projectId/t/:taskId` | Delete task; role-restricted |
-| `POST` | `/tasks/:projectId/t/:taskId/subtasks` | Create subtask |
-| `PUT` | `/tasks/:projectId/st/:subTaskId` | Update subtask subject to server policy |
-| `DELETE` | `/tasks/:projectId/st/:subTaskId` | Delete subtask; role-restricted |
+| `POST` | `/tasks/:projectId` | Create a task and optionally upload attachments |
+| `GET` | `/tasks/:projectId/t/:taskId` | Fetch task details |
+| `PUT` | `/tasks/:projectId/t/:taskId` | Update an allowed task field; members are restricted to status-only updates by the task policy |
+| `DELETE` | `/tasks/:projectId/t/:taskId` | Delete a task, subject to the configured role policy |
+| `POST` | `/tasks/:projectId/t/:taskId/subtasks` | Create a subtask |
+| `PUT` | `/tasks/:projectId/st/:subTaskId` | Update a subtask |
+| `DELETE` | `/tasks/:projectId/st/:subTaskId` | Delete a subtask, subject to the configured role policy |
 
-Task creation accepts normal JSON. When attachments are included, the endpoint uses multipart form data with field name `attachments`.
+Task status values used by the backend are `todo`, `in_progress`, and `done`.
 
-### Notes
+### Project notes — `/notes`
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/notes/:projectId` | List project notes |
+| `GET` | `/notes/:projectId` | List notes in a project |
 | `POST` | `/notes/:projectId` | Create a note |
-| `GET` | `/notes/:projectId/n/:noteId` | Get a note |
-| `PUT` | `/notes/:projectId/n/:noteId` | Update a note subject to authorization |
-| `DELETE` | `/notes/:projectId/n/:noteId` | Delete a note; role-restricted |
+| `GET` | `/notes/:projectId/n/:noteId` | Get one note |
+| `PUT` | `/notes/:projectId/n/:noteId` | Update a note |
+| `DELETE` | `/notes/:projectId/n/:noteId` | Delete a note, subject to the configured role policy |
 
-### Messages and receipts
+### Project messages — `/messages`
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/messages/:projectId` | List project chat messages |
-| `POST` | `/messages/:projectId` | Create a message; supports reply reference and mentions |
-| `PUT` | `/messages/:projectId/:messageId` | Update a message subject to authorization |
-| `DELETE` | `/messages/:projectId/:messageId` | Delete a message subject to authorization |
-| `POST` | `/messages/:projectId/receipts` | Update message delivery/read receipts |
+| `GET` | `/messages/:projectId` | List project chat messages; supports the implemented query filters such as task context and limit |
+| `POST` | `/messages/:projectId` | Send a message; supports reply and mention data |
+| `POST` | `/messages/:projectId/receipts` | Update delivered/read receipts for messages |
+| `PUT` | `/messages/:projectId/:messageId` | Edit a message according to author/role permissions |
+| `DELETE` | `/messages/:projectId/:messageId` | Delete a message according to author/role permissions |
 
-### Notifications
+### Realtime and presence — `/realtime`
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/realtime/stream-token` | Issue a short-lived token for a specific realtime stream scope |
+| `GET` | `/realtime/users/notifications/events` | SSE stream for the authenticated user's notification events |
+| `POST` | `/realtime/presence` | Send a browser-session presence heartbeat or mark that session offline |
+| `GET` | `/realtime/:projectId/presence` | Get presence information for project members |
+| `GET` | `/realtime/:projectId/events` | Open a project-scoped SSE event stream |
+
+### Notifications — `/notifications`
 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET` | `/notifications` | List the current user's notifications |
-| `PATCH` | `/notifications/read-all` | Mark all current user's notifications read |
-| `PATCH` | `/notifications/projects/:projectId/messages/read` | Mark message notifications for a project read |
-| `PATCH` | `/notifications/:notificationId/read` | Mark a notification read |
-| `DELETE` | `/notifications/:notificationId` | Delete a notification owned by the current user |
+| `PATCH` | `/notifications/read-all` | Mark all notifications as read |
+| `PATCH` | `/notifications/projects/:projectId/messages/read` | Mark project chat notifications as read |
+| `PATCH` | `/notifications/:notificationId/read` | Mark one notification as read |
+| `DELETE` | `/notifications/:notificationId` | Delete one notification |
 
-### Realtime and presence
+The route source files under `backend/src/routes/` remain the source of truth for exact request schemas, optional parameters, and response payloads.
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `POST` | `/realtime/stream-token` | Mint a short-lived, scope-limited token for an SSE stream (authenticated) |
-| `GET` | `/realtime/:projectId/events` | Stream project events; current project membership is validated |
-| `GET` | `/realtime/users/notifications/events` | Stream user-specific notification events |
-| `POST` | `/realtime/presence` | Create/update a browser-tab presence heartbeat or close a session |
-| `GET` | `/realtime/:projectId/presence` | Fetch project member presence |
+## Roles and permissions
 
----
+The application defines these project roles:
 
-## Authentication and authorization
+| Role | General purpose |
+|---|---|
+| `admin` | Administrative operations allowed by the application policy |
+| `project_admin` | Project-level management operations allowed by the application policy |
+| `member` | Collaborates on projects and performs permitted task and collaboration actions |
 
-- Protected API routes use JWT authentication middleware.
-- Project-scoped endpoints validate that the authenticated user belongs to the project.
-- Roles include admin, project admin, and member; exact write permissions are enforced server-side.
-- A regular project member can move the status of an assigned task, but cannot use the status permission to edit its title, description, or assignee.
-- Members should only edit their own messages/notes where the configured service policy allows it; privileged roles have broader management permissions.
-- SSE uses a short-lived, scope-limited token because native browser `EventSource` cannot set a custom bearer `Authorization` header. The backend validates token scope and current membership when opening a project stream.
-- Never place long-lived access tokens in URLs. Avoid logging complete SSE request URLs because they contain short-lived stream tokens.
+The backend enforces permissions; frontend visibility is not a substitute for server-side authorization. Under the current task policy, a member can submit a status-only task update using one of `todo`, `in_progress`, or `done`. Members cannot use that status operation to change task title, assignee, or other management fields. Project and task create/delete operations have more restrictive role requirements defined in the route middleware and task policy service.
 
-Review every authorization change in both frontend visibility rules and backend service/middleware policy. Hiding a button is not a substitute for server-side authorization.
+When updating roles or permission rules, check both `backend/src/middlewares/auth.middleware.ts`, `backend/src/services/task-policy.service.ts`, and the corresponding frontend UI controls.
 
----
+## Realtime behavior
 
-## Realtime, chat, presence, and notifications
+### Project events
 
-### How realtime works
+The project layout owns the project event stream and shares connection state/events with child tabs. This avoids opening a separate project SSE stream from every tab. Supported project events include message changes and receipts, task/subtask changes, note changes, member changes, and other project updates published by the backend.
 
-1. The frontend calls the authenticated `POST /realtime/stream-token` endpoint.
-2. The backend returns a short-lived token limited to the requested stream scope (and project where appropriate).
-3. The frontend opens an `EventSource` connection with that stream token.
-4. The backend validates token scope, user identity, and project membership.
-5. When a relevant change is committed, the backend publishes an event to its in-process event bus.
-6. The SSE controller writes the event to connected browsers; frontend subscribers update the UI or reload affected data.
-7. Keep-alive heartbeats help maintain the connection, and the frontend reconnects with a fresh token when required.
+### Notification events
 
-Project SSE is centralized in the project layout and shared through `frontend/lib/project-realtime.ts`, avoiding separate project event streams per tab. The user-wide notification stream is handled by the workspace shell.
+The workspace dashboard shell owns a user-level notification stream. When a notification is created for the current user, the frontend can update the bell badge and notification inbox while connected.
 
-### Project chat
+### Message receipts
 
-- Messages are persisted in MongoDB.
-- Project members receive new messages live while connected.
-- Reply references must point to a message in the same project conversation.
-- Mention targets must be valid members of that project.
-- Message receipt state tracks delivered/read recipients; in a multi-member project, the all-delivered/all-read state can remain pending while a relevant member is offline or has not opened the chat.
-- Opening the project chat marks the project's older message notifications as read. If a user is actively viewing that project's chat, new messages do not create redundant bell entries for that same chat; notification behavior for other events/projects remains enabled.
+- A single tick indicates that the message was saved successfully.
+- Double ticks indicate delivery to the relevant other participants according to the current receipt implementation.
+- Blue ticks indicate that the relevant recipients have been marked as having read the message.
+
+Read receipts show application-level read state; they cannot prove that a person actually read or understood the message.
 
 ### Presence
 
-Presence uses heartbeats from browser tabs/sessions. Multiple tabs should not mark a user offline while another tab is still active. A stale session is expired after the configured timeout/sweep interval, so online/offline is an approximation of active application sessions—not proof that a person is looking at the screen.
+The browser periodically sends a presence heartbeat. The backend tracks active browser sessions and infers offline status when a session stops reporting. This is a session-based estimate, not a guarantee that a person is actively looking at the application.
 
-### Notification inbox
+### Realtime deployment notes
 
-Notifications are persisted in MongoDB and the header bell receives live user-specific notification events. The `/notifications` page provides the full inbox. Notification actions should be tested with at least two accounts because a user's own action is generally not intended to create a notification for that same user.
+The current realtime event bus and presence registry are process-local. Live updates are designed for a single backend process. If the backend runs multiple instances, a shared event broker and shared presence store are needed to synchronize events and status across instances. SSE reconnection also cannot recover every event that happened while a browser was disconnected; the frontend should refetch persisted data on reconnect where necessary.
 
-### Current realtime scale limit
+## Email configuration
 
-The event bus and presence registry are process-local. This supports a single API process. If multiple Render instances are introduced, they will not automatically share local events or presence; add a shared broker/store (for example Redis Pub/Sub plus shared presence/TTL storage) or an appropriate Socket.IO adapter before horizontally scaling.
+Email verification and password recovery use Nodemailer and the SMTP settings in `backend/.env`. The variable names currently use the `MAILTRAP_SMTP_*` prefix, but they represent ordinary SMTP configuration values for the chosen provider.
 
----
+1. Create or use an SMTP-enabled email account/provider.
+2. Configure host, port, username, password, and sender in `backend/.env`.
+3. Ensure the sender address is accepted by the provider.
+4. Register a test user and check the destination mailbox and spam folder.
+5. Test the verification link and forgot-password/reset flow.
 
-## Email and password recovery
+For a hosted deployment, configure the frontend URL and `FORGOT_PASSWORD_REDIRECT_URL` with the deployed frontend origin. Email delivery timing depends on the SMTP provider and recipient mail system. Email sending is separate from in-app SSE notifications.
 
-The backend sends email via Nodemailer and SMTP. Configure `MAILTRAP_SMTP_HOST`, `MAILTRAP_SMTP_PORT`, `MAILTRAP_SMTP_USER`, `MAILTRAP_SMTP_PASS`, and a valid `MAIL_FROM` for a real provider. The variable names are retained from the current project configuration; the values must match the SMTP provider you actually use.
+## Task attachments
 
-- Local development without working SMTP may log an email preview rather than deliver a real email.
-- Production verification/reset links must use the correct public frontend URLs.
-- Verify sender/domain authentication with your provider before public release.
-- Use random, expiring, single-use verification/reset tokens and ensure they are invalidated after use.
-- Email delivery is not guaranteed to be instantaneous. For durable retries/high-volume sends, a background queue (e.g. BullMQ + Redis) is a future enhancement; it is not currently included as an active queue in this repository.
-- Provider webhooks for delivered/bounced/complained events are also a future integration; they are not the same as the app's internal domain events.
+Task creation accepts multipart uploads through Multer. The current application uses the backend's local `public/images` directory for uploaded files. This is appropriate for local development, but a hosted service may have an ephemeral filesystem. If uploaded files must persist across service restarts or redeployments, configure durable file storage and update the upload/read flow accordingly.
 
----
+## Testing and verification
 
-## File uploads
+Run commands from the relevant package directory.
 
-Task attachment uploads use multipart form data with field name `attachments`, with up to five attachments accepted by the current route/middleware configuration. The current application stores uploads on the backend filesystem for local development.
+### Backend scripts
 
-**Before relying on attachments in production, configure durable object storage** (for example S3 or Cloudinary) or a properly configured persistent disk. Render's ordinary local filesystem should be treated as ephemeral across deploys/restarts. Protect upload routes, validate file type/size server-side, and avoid exposing private attachments through an unprotected public static directory.
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Run the API in development mode with `tsx watch` |
+| `npm run typecheck` | Type-check the backend without emitting output |
+| `npm test` | Run the configured focused event/SSE/token/task-policy tests |
+| `npm run build` | Compile TypeScript into `dist/` |
+| `npm start` | Run the compiled backend |
 
----
-
-## Useful scripts
-
-### Backend (`cd backend`)
-
-```bash
-npm run dev        # Run TypeScript source with tsx watch
-npm run typecheck  # TypeScript typecheck without emitting
-npm test           # Focused realtime/SSE/token/task-policy tests
-npm run build      # Compile TypeScript to backend/dist
-npm start          # Run compiled production server
-```
-
-### Frontend (`cd frontend`)
-
-```bash
-npm run dev        # Next.js development server
-npm run typecheck  # TypeScript typecheck
-npm run lint       # ESLint
-npm run build      # Next.js production build
-npm start          # Run production server after build
-```
-
-Use the package-local lockfiles and `npm ci` for reproducible installs. If you deliberately change dependencies, run `npm install` in that package and commit the updated corresponding lockfile.
-
-## Testing and known limitations
-
-Before a release, run checks from both package directories.
-
-Backend:
+Commands:
 
 ```bash
 cd backend
-npm ci
 npm run typecheck
 npm test
 npm run build
 ```
 
-Frontend (new terminal):
+### Frontend scripts
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Run the Next.js development server |
+| `npm run typecheck` | Type-check TypeScript files |
+| `npm run lint` | Run ESLint |
+| `npm run build` | Build the Next.js application |
+| `npm start` | Serve the built Next.js application |
+
+Commands:
 
 ```bash
 cd frontend
-npm ci
 npm run typecheck
 npm run lint
 npm run build
 ```
 
-Then perform a two-browser manual test:
+### Manual two-user test
 
-1. Register/login as two users and add both to the same project.
-2. Change an assigned task's status and ensure permissions reject unauthorized task-field edits.
-3. Send chat messages; test reply references and `@mentions`.
-4. Check delivered/read ticks and online/offline indicators.
-5. Verify the other user's bell and `/notifications` inbox update without page refresh.
-6. Open chat and confirm redundant same-project message notifications are suppressed.
-7. Create/update notes, add/remove members, and verify project access is revoked correctly after removal.
-8. Test email verification, resend verification, forgot-password and reset-password with real SMTP credentials.
-9. Test refresh token expiry, stream-token expiry/reconnection, CORS, logout, mobile UI and keyboard accessibility.
+Use two different browser profiles or one normal window plus an incognito window. Sign in as two different users who belong to the same project.
 
-Known limitations to address before a public launch:
+1. Send a project chat message and confirm it appears in the other session without a manual refresh.
+2. Reply to a message and mention a project member.
+3. Check message delivery/read ticks by receiving and opening the conversation in the other session.
+4. Change a task status as a member and check that the other session receives the update.
+5. Create or edit a project note and check the connected project view.
+6. Trigger a task assignment or mention and check the notification bell/inbox.
+7. Open the Members page and compare online/offline status while both browser sessions are connected.
+8. Stop one browser session and wait for the presence timeout; confirm the user eventually becomes offline.
 
-- Full production parity with Jira is not claimed; this is a full-stack MVP.
-- The in-process realtime event bus and presence registry do not coordinate multiple backend instances.
-- Local filesystem uploads are not durable on ephemeral hosts.
-- Frontend bearer tokens stored in `localStorage` increase the impact of XSS. Consider a hardened same-site `httpOnly` cookie/BFF session architecture with CSRF protections as appropriate.
-- Native SSE uses a short-lived token in the connection URL. Keep the TTL short, never log full URLs, verify stream scope, and consider a hardened cookie/BFF stream-auth strategy for public production.
-- No active Redis-backed queue/cache or transactional outbox is included. Add these only when the desired reliability/scale requirements call for them, and design idempotency/retry behavior.
-- Ensure production secrets, email sender/domain, CORS origins, database indexes, and file storage are configured and tested.
+## Deploy the backend to Render
 
-Do not declare the system production-ready solely because the frontend renders or the backend health endpoint responds. Run the package builds and verify the real user workflows above.
+The backend and frontend can be deployed separately. Deploying does not remove the need to configure MongoDB access, CORS, token secrets, SMTP, and file storage.
 
----
-
-## Deploy to Render and Vercel
-
-The frontend and backend live in the same GitHub repository but deploy as separate services.
-
-### Deploy the backend to Render
-
-1. Push the repository to GitHub.
-2. In Render, create a **Web Service** from the repository.
-3. Set **Root Directory** to `backend`.
-4. Set **Build Command** to:
+1. Ensure the code has been pushed to your Git hosting provider.
+2. Create a Render Web Service and connect the repository.
+3. Set the **Root Directory** to `backend`.
+4. Set the **Build Command** to:
 
    ```bash
    npm ci && npm run build
    ```
 
-5. Set **Start Command** to:
+5. Set the **Start Command** to:
 
    ```bash
    npm start
    ```
 
-6. Use Node.js 20.9+.
-7. Configure all production environment variables from the backend table. Use MongoDB Atlas or another database reachable by Render.
-8. Set `CORS_ORIGIN` to the exact deployed Vercel origin (no trailing slash), `FRONTEND_URL` to the frontend origin, `SERVER_URL` to the Render API origin, and `FORGOT_PASSWORD_REDIRECT_URL` to the frontend reset-password base URL.
-9. Deploy and check `https://YOUR-RENDER-SERVICE.onrender.com/api/v1/healthcheck`.
-10. Review Render logs for MongoDB, SMTP, token-secret, upload, and CORS configuration errors.
+6. Configure the backend environment variables in Render. Use the Render backend URL for `SERVER_URL` and the deployed frontend URL for `FRONTEND_URL`, `CORS_ORIGIN`, and `FORGOT_PASSWORD_REDIRECT_URL` as appropriate.
+7. Add the MongoDB Atlas connection string as `MONGO_URI`. Confirm Atlas network access permits the backend to connect.
+8. Generate distinct, long random values for `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`, and `REALTIME_TOKEN_SECRET`.
+9. Add SMTP credentials if email verification or password recovery needs to work on the hosted environment.
+10. After deployment, open `https://YOUR-API-DOMAIN/api/v1/healthcheck` and confirm the health response succeeds.
 
-### Deploy the frontend to Vercel
+For CORS, use the exact origin including scheme, for example `https://your-app.vercel.app`. Do not add a trailing slash. If you want more than one allowed frontend origin, separate the exact origins with commas. Review CORS rules carefully before allowing preview domains.
 
-1. Import the same GitHub repository into Vercel.
-2. Set **Root Directory** to `frontend` and use the Next.js preset.
-3. Add the production environment variable:
+## Deploy the frontend to Vercel
+
+1. Import the repository into Vercel.
+2. Set the **Root Directory** to `frontend`.
+3. Add the environment variable:
 
    ```env
-   NEXT_PUBLIC_API_BASE_URL=https://YOUR-RENDER-SERVICE.onrender.com/api/v1
+   NEXT_PUBLIC_API_BASE_URL=https://YOUR-API-DOMAIN/api/v1
    ```
 
 4. Deploy the frontend.
-5. Copy the real Vercel origin and update Render's `CORS_ORIGIN` and `FRONTEND_URL`. Configure `FORGOT_PASSWORD_REDIRECT_URL` with the frontend's `/reset-password` base path.
-6. Redeploy the backend after changing Render environment variables. Redeploy the frontend after changing `NEXT_PUBLIC_API_BASE_URL`.
-7. Test the health endpoint and the registration, login, project creation, member permissions, task updates, notes, chat, notifications, password recovery, and logout flows against the deployed services.
+5. Copy the actual Vercel frontend origin into the backend's `CORS_ORIGIN` and `FRONTEND_URL` configuration, and set the password-reset redirect URL to the frontend's reset route.
+6. Redeploy/restart the backend after changing its environment variables.
+7. Test registration, login, refresh token behavior, project membership, tasks, chat, notifications, presence, and email links on the deployed domains.
 
-If using both preview and production Vercel domains, add only the exact origins you intend to allow to `CORS_ORIGIN`. For credentialed CORS, do not use wildcard `*`.
-
----
+Use your real Render and Vercel URLs in place of the examples. `NEXT_PUBLIC_API_BASE_URL` is public browser configuration and must not contain secrets.
 
 ## Troubleshooting
 
-### Frontend shows “Cannot reach API” or browser console reports CORS
+### Browser reports a CORS error
 
-- Confirm the backend is running and `http://localhost:8000/api/v1/healthcheck` responds.
-- Confirm `frontend/.env.local` has `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1`.
-- Confirm `backend/.env` has `CORS_ORIGIN=http://localhost:3000` (comma-separated exact origins are supported).
-- Restart the backend after modifying `backend/.env`; restart Next.js after modifying `frontend/.env.local`.
-- Use the same hostname consistently: `localhost` and `127.0.0.1` are different browser origins.
+- Confirm `CORS_ORIGIN` in the backend's actual `.env` or hosted environment configuration matches the frontend origin exactly.
+- Use `http://localhost:3000` locally, not a different hostname or port unless it is explicitly allowed.
+- If using both localhost and `127.0.0.1`, add both origins as a comma-separated list.
+- Restart the backend after changing its environment variables.
+- Confirm `NEXT_PUBLIC_API_BASE_URL` points to the backend API with `/api/v1` included.
 
-### Chat shows “Connecting” forever
+### Chat or notifications remain on “Connecting”
 
-- Inspect the browser Network tab for the `POST /api/v1/realtime/stream-token` request and the corresponding SSE request.
-- Confirm access token, `REALTIME_TOKEN_SECRET`, stream scope and current project membership are valid.
-- Inspect backend logs for stream-token validation and authorization errors.
-- Confirm the deployed proxy/host allows long-lived SSE responses and is not buffering them.
-- Use a fresh login after changing token-secret configuration.
+- Confirm the backend is running and the frontend API base URL is correct.
+- Check the browser Network tab for the stream-token request and the SSE requests under `/api/v1/realtime/`.
+- Check the backend terminal for authentication, token-expiry, or project-membership errors.
+- Confirm `REALTIME_TOKEN_SECRET` is configured consistently for the running backend.
+- Verify the logged-in user still belongs to the project.
+- Inspect proxy/hosting behavior if the stream connects locally but not on the deployed service; SSE requires a streaming response rather than a buffered response.
 
-### Live updates do not appear in another browser
+### MongoDB connection fails
 
-- Make sure both users are project members and are connected to the same backend instance.
-- Confirm the event-producing API request succeeded.
-- Confirm the SSE stream is open (not pending a failed connection) and reconnects after expiry.
-- If deploying multiple backend instances, local in-memory events will not propagate between them until a shared event broker is implemented.
+- Verify `MONGO_URI` is valid and the database user password is correct.
+- Confirm MongoDB is running locally or Atlas network access permits the deployed backend.
+- URL-encode special characters in MongoDB usernames/passwords when required by the connection string.
 
-### Email links do not arrive
+### Email does not arrive
 
-- Verify SMTP values and sender address with the provider.
-- Check spam/junk and provider logs.
-- Confirm `FRONTEND_URL` and `FORGOT_PASSWORD_REDIRECT_URL` use the deployed frontend domain and expected path.
-- Confirm the sender domain is authenticated with the provider.
+- Check SMTP host, port, username, password, and sender configuration.
+- Verify the provider allows the sender address and the account is not in test-only mode.
+- Check the inbox's spam/junk folder and provider logs.
+- Confirm `FRONTEND_URL` and `FORGOT_PASSWORD_REDIRECT_URL` use the correct frontend origin.
 
-### Build or typecheck fails
+### Task attachments disappear after deployment
 
-- Verify Node.js is 20.9+ (`node --version`).
-- Run `npm ci` separately inside `backend` and `frontend`.
-- Run the failing command from its package directory and read the first actual TypeScript/ESLint error (not only the final summary).
-- Avoid installing packages at the monorepo root unless a root `package.json` is intentionally introduced.
+The current upload location is local disk. Use persistent/object storage and update the application to use it before relying on uploads across restarts or redeployments.
+
+### A user appears online after closing the browser
+
+Presence is heartbeat based and may take time to expire. Multiple tabs/sessions can keep the same user online until all active sessions stop sending heartbeats or are explicitly removed.
+
+### Local development uses stale code or environment values
+
+- Stop and restart the affected development server after changing package files or environment variables.
+- Check the `.env` file in the correct package folder.
+- Confirm the terminal is running from `backend` or `frontend`, as appropriate.
+- Reinstall dependencies with `npm ci` if the lockfile is available and the installed tree is out of sync.
+
+## Current limitations
+
+- Realtime event publication and presence are process-local. Multiple backend instances need shared event and presence infrastructure.
+- SSE is one-way server-to-browser communication; client actions use HTTP APIs.
+- A disconnected browser can miss live events; persisted data should be fetched again after reconnecting.
+- Task attachments currently use local disk; durable cloud storage is not configured by default.
+- SMTP settings must be provided to test real email flows.
+- Email background queues, external email-provider webhook processing, and cross-instance Redis Pub/Sub are not configured by default.
+- A successful local build and manual feature test should be completed before relying on a deployment; configure the environment variables for the target hosting services.
+
+---
+
+For an implementation detail not covered here, inspect the matching route, controller, service, model, validator, or frontend module. The source code is the definitive reference for exact payload schemas and behavior.
