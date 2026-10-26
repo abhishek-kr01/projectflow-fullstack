@@ -4,6 +4,7 @@ import { ApiResponse } from "../utils/api-response.js";
 import { ApiError } from "../utils/api-error.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { UserRolesEnum } from "../utils/constants.js";
+import { publishProjectEvent } from "../utils/realtime.js";
 
 export const getNotes = asyncHandler(async (req, res) => {
   const { projectId } = req.params;
@@ -17,6 +18,7 @@ export const createNote = asyncHandler(async (req, res) => {
   if (!project) throw new ApiError(404, "Project not found.");
   const note = await ProjectNote.create({ project: projectId, content: String(req.body.content).trim(), createdBy: req.user._id });
   const populated = await ProjectNote.findById(note._id).populate("createdBy", "username email fullName avatar");
+  publishProjectEvent(projectId, "note:created", populated);
   return res.status(201).json(new ApiResponse(201, populated, "Note created successfully."));
 });
 
@@ -35,11 +37,13 @@ export const updateNote = asyncHandler(async (req, res) => {
   if (req.body.content !== undefined) note.content = String(req.body.content).trim();
   await note.save();
   const populated = await ProjectNote.findById(note._id).populate("createdBy", "username email fullName avatar");
+  publishProjectEvent(req.params.projectId, "note:updated", populated);
   return res.status(200).json(new ApiResponse(200, populated, "Note updated successfully."));
 });
 
 export const deleteNote = asyncHandler(async (req, res) => {
   const note = await ProjectNote.findOneAndDelete({ _id: req.params.noteId, project: req.params.projectId });
   if (!note) throw new ApiError(404, "Note not found in this project.");
+  publishProjectEvent(req.params.projectId, "note:deleted", { _id: req.params.noteId });
   return res.status(200).json(new ApiResponse(200, note, "Note deleted successfully."));
 });

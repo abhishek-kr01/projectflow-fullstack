@@ -12,7 +12,7 @@ ProjectFlow is a responsive project-management application built with **Next.js 
 - Authentication: registration, login/logout, current user, email verification, resend verification, password reset, and password change.
 - Projects: create, list, update, delete, project membership, and member role changes.
 - Tasks: project task lists, task details, status/assignee updates, attachment uploads (up to five files per task), and subtasks.
-- Notes: project notes with create/read/update/delete workflows.
+- Notes: project notes with create/read/update/delete workflows and project-scoped live update events.\n- Project chat: persistent project messages with edit/delete permissions, message history, and live updates over authenticated Server-Sent Events (SSE).\n- Realtime task board: project-scoped SSE events refresh connected task boards when tasks are created, updated, or deleted; no manual refresh is needed while the connection is healthy.\n- Live collaboration transport uses built-in Node/Express SSE (no extra socket dependency); clients reconnect automatically and the backend sends keep-alive heartbeats.
 - Authorization: project membership checks and role-gated write operations.
 - Responsive workspace UI: project overview, task board, team members, project notes, settings, authentication, and recovery screens.
 - One typed API client in `frontend/lib/api.ts`; the backend's TypeScript source compiles into `backend/dist` for production.
@@ -29,7 +29,7 @@ projectflow-fullstack/
 │   │   ├── models/            # Mongoose schemas and methods
 │   │   ├── routes/            # Express API routes
 │   │   ├── types/             # Express request type augmentation
-│   │   ├── utils/             # Responses, errors, mail, constants
+│   │   ├── utils/             # Responses, errors, mail, constants, realtime event bus
 │   │   └── index.ts            # TypeScript entry point
 │   ├── public/images/          # Local upload location (development)
 │   ├── .env.example
@@ -201,3 +201,50 @@ npm run lint
 npm run build
 npm start
 ```
+
+
+## Realtime collaboration and project chat
+
+The API exposes an authenticated Server-Sent Events endpoint at
+`GET /api/v1/realtime/:projectId/events?token=<access-token>`. It checks the
+access token and project membership before streaming project-scoped events.
+Task creation/update/deletion and note create/update/delete events are published
+by the API. The project task board listens for task events and reloads its
+current data. SSE is a single-server event bus: if you scale the API to multiple
+instances, move event fan-out to a shared broker (for example Redis Pub/Sub) or
+a Socket.IO adapter before scaling horizontally.
+
+Project chat is available under each project at **Chat**. Messages are stored in
+MongoDB and delivered live to connected project members. Message bodies are
+limited to 5,000 characters and list results are capped at 100 messages. Task
+comments are not a separate UI yet; the message model supports an optional task
+reference for that next workflow, but the current chat UI is project-wide.
+
+## Production limitations to address before a public launch
+
+- Local task attachments use the backend filesystem. Configure durable object
+  storage (S3/Cloudinary) before relying on uploaded files across redeploys.
+- SSE currently uses a process-local event bus. A single Render service works;
+  multiple instances require shared pub/sub.
+- The access token is passed in the SSE query string because native
+  `EventSource` cannot set an Authorization header. Keep access tokens short
+  lived, use HTTPS in production, and consider a fetch-stream client or
+  authenticated cookie-only SSE before handling sensitive/high-scale traffic.
+- Run `npm run build` in both packages and test auth, task permissions, chat,
+  email flows, and CORS with real environment values before deployment.
+- This package is a strengthened MVP, not a claim of full Jira feature parity.
+
+
+## UI visibility and contrast updates
+
+The latest frontend pass introduces semantic CTA classes (`brand-action`, `light-surface-action`, and `dark-surface-action`) so button text remains readable over both light and dark surfaces, including hover/focus/disabled states. Low-contrast text utility colors on light surfaces were darkened while decorative accent colors on dark panels were preserved. Shared form placeholder/icon colors, semantic status pills, data-table headers, disabled buttons, and keyboard focus outlines were also improved.
+
+After installing dependencies, verify the frontend with:
+
+```bash
+cd frontend
+npm run lint
+npm run build
+```
+
+Manually inspect `/`, `/register`, `/login`, `/forgot-password`, `/dashboard`, project/task/notes/member/chat views at desktop and mobile widths. Test CTA hover/focus/disabled states, field placeholders, badges, empty states, loading states, and errors. Automated screenshot-based contrast verification is not included, so visual QA in a browser remains necessary.

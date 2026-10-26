@@ -8,6 +8,8 @@ import authRouter from "./routes/auth.routes.js";
 import projectRouter from "./routes/project.routes.js";
 import taskRouter from "./routes/task.routes.js";
 import projectNoteRouter from "./routes/projectnote.routes.js";
+import messageRouter from "./routes/message.routes.js";
+import realtimeRouter from "./routes/realtime.routes.js";
 import { ApiError } from "./utils/api-error.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 
@@ -37,6 +39,8 @@ app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/projects", projectRouter);
 app.use("/api/v1/tasks", taskRouter);
 app.use("/api/v1/notes", projectNoteRouter);
+app.use("/api/v1/messages", messageRouter);
+app.use("/api/v1/realtime", realtimeRouter);
 app.use((_req, _res, next) => next(new ApiError(404, "Route not found.")));
 app.use(errorHandler);
 

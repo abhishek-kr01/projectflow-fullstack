@@ -16,7 +16,7 @@ export function Avatar({ name, src, size = "md" }: { name?: string; src?: string
 }
 
 export function PageHeading({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: React.ReactNode }) {
-  return <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div className="min-w-0">{eyebrow && <div className="eyebrow mb-2">{eyebrow}</div>}<h1 className="text-[25px] font-[780] tracking-[-.045em] text-[#242237] sm:text-[29px]">{title}</h1>{description && <p className="mt-1.5 max-w-2xl text-[13px] leading-6 text-[#85849a]">{description}</p>}</div>{action && <div className="shrink-0">{action}</div>}</div>;
+  return <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div className="min-w-0">{eyebrow && <div className="eyebrow mb-2">{eyebrow}</div>}<h1 className="text-[25px] font-[780] tracking-[-.045em] text-[#242237] sm:text-[29px]">{title}</h1>{description && <p className="mt-1.5 max-w-2xl text-[13px] leading-6 text-[#6e6d80]">{description}</p>}</div>{action && <div className="shrink-0">{action}</div>}</div>;
 }
 
 export function LoadingBlock({ rows = 3 }: { rows?: number }) {
@@ -24,7 +24,7 @@ export function LoadingBlock({ rows = 3 }: { rows?: number }) {
 }
 
 export function EmptyState({ icon, title, description, action }: { icon: React.ReactNode; title: string; description: string; action?: React.ReactNode }) {
-  return <div className="empty-state"><div className="empty-icon">{icon}</div><h3 className="text-[14px] font-[750] text-[#302d46]">{title}</h3><p className="mt-2 max-w-[330px] text-[12px] leading-5 text-[#89869c]">{description}</p>{action && <div className="mt-5">{action}</div>}</div>;
+  return <div className="empty-state"><div className="empty-icon">{icon}</div><h3 className="text-[14px] font-[750] text-[#302d46]">{title}</h3><p className="mt-2 max-w-[330px] text-[12px] leading-5 text-[#706d7f]">{description}</p>{action && <div className="mt-5">{action}</div>}</div>;
 }
 
 export function Modal({ open, onClose, title, description, children, width }: { open: boolean; onClose: () => void; title: string; description?: string; children: React.ReactNode; width?: string }) {
@@ -35,7 +35,7 @@ export function Modal({ open, onClose, title, description, children, width }: { 
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
   if (!open) return null;
-  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="modal" style={width ? { maxWidth: width } : undefined} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="flex items-start justify-between gap-3 border-b border-[#f0eef6] px-5 py-5 sm:px-6"><div><h2 id="modal-title" className="text-[17px] font-[780] tracking-[-.025em]">{title}</h2>{description && <p className="mt-1.5 text-[12px] leading-5 text-[#89869c]">{description}</p>}</div><button type="button" className="icon-btn h-8 w-8 shrink-0" onClick={onClose} aria-label="Close dialog"><X size={16}/></button></div><div className="p-5 sm:p-6">{children}</div></div></div>;
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="modal" style={width ? { maxWidth: width } : undefined} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="flex items-start justify-between gap-3 border-b border-[#f0eef6] px-5 py-5 sm:px-6"><div><h2 id="modal-title" className="text-[17px] font-[780] tracking-[-.025em]">{title}</h2>{description && <p className="mt-1.5 text-[12px] leading-5 text-[#706d7f]">{description}</p>}</div><button type="button" className="icon-btn h-8 w-8 shrink-0" onClick={onClose} aria-label="Close dialog"><X size={16}/></button></div><div className="p-5 sm:p-6">{children}</div></div></div>;
 }
 
 export type ToastMessage = { type: "success" | "error" | "info"; message: string } | null;

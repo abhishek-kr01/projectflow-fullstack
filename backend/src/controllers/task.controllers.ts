@@ -7,6 +7,7 @@ import { ApiResponse } from "../utils/api-response.js";
 import { ApiError } from "../utils/api-error.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { AvailableTaskStatuses, UserRolesEnum } from "../utils/constants.js";
+import { publishProjectEvent } from "../utils/realtime.js";
 
 const assertAssigneeIsMember = async (projectId: string, assignedTo?: string | null) => {
   if (!assignedTo) return;
@@ -46,6 +47,7 @@ export const createTask = asyncHandler(async (req, res) => {
     attachments,
   });
   const populated = await Task.findById(task._id).populate("assignedTo", "avatar username fullName email").populate("assignedBy", "avatar username fullName");
+  publishProjectEvent(projectId, "task:created", populated);
   return res.status(201).json(new ApiResponse(201, populated, "Task created successfully."));
 });
 
@@ -89,6 +91,7 @@ export const updateTask = asyncHandler(async (req, res) => {
   }
   await task.save();
   const populated = await Task.findById(task._id).populate("assignedTo", "avatar username fullName email").populate("assignedBy", "avatar username fullName");
+  publishProjectEvent(projectId, "task:updated", populated);
   return res.status(200).json(new ApiResponse(200, populated, "Task updated successfully."));
 });
 
@@ -97,6 +100,7 @@ export const deleteTask = asyncHandler(async (req, res) => {
   const task = await Task.findOneAndDelete({ _id: taskId, project: projectId });
   if (!task) throw new ApiError(404, "Task not found in this project.");
   await Subtask.deleteMany({ task: taskId });
+  publishProjectEvent(projectId, "task:deleted", { _id: taskId });
   return res.status(200).json(new ApiResponse(200, task, "Task and its subtasks deleted successfully."));
 });
 
