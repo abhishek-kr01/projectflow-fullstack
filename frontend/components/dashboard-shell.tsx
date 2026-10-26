@@ -65,9 +65,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     let source: EventSource | null = null;
     const connect = () => {
       source?.close();
-      const token = window.localStorage.getItem("projectflow_access_token");
-      if (!token) return;
-      const nextSource = new EventSource(`${API_BASE_URL}/realtime/users/notifications/events?token=${encodeURIComponent(token)}`);
+      const nextSource = new EventSource(`${API_BASE_URL}/realtime/users/notifications/events`, { withCredentials: true });
       source = nextSource;
       nextSource.addEventListener("notification:created", (event) => {
         try {

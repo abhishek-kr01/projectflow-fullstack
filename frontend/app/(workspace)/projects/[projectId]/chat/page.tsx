@@ -3,9 +3,10 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Check, CheckCheck, MessageCircle, Send, Wifi, WifiOff } from "lucide-react";
-import { API_BASE_URL, api, getPresenceSessionId, request } from "@/lib/api";
+import { api, getPresenceSessionId, request } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { ProjectChatMessage, ProjectMember, ProjectPresence } from "@/lib/types";
+import { subscribeProjectRealtime, subscribeProjectRealtimeStatus } from "@/lib/project-realtime";
 import { Avatar, ErrorMessage, LoadingBlock } from "@/components/ui";
 
 type ReceiptState = "sent" | "delivered" | "read";
@@ -17,11 +18,6 @@ function getReceiptState(message: ProjectChatMessage, recipientCount: number, ow
   if (recipientCount > 0 && delivered >= recipientCount) return { state: "delivered", title: `Delivered to all ${recipientCount} teammate${recipientCount === 1 ? "" : "s"}` };
   if (read > 0 || delivered > 0) return { state: "sent", title: `Seen by ${read}; delivered to ${delivered} of ${recipientCount}` };
   return { state: "sent", title: "Sent to ProjectFlow" };
-}
-
-function messageFromEvent(event: Event) {
-  const envelope = JSON.parse((event as MessageEvent).data);
-  return envelope?.payload || envelope;
 }
 
 export default function ProjectChatPage() {
@@ -71,76 +67,61 @@ export default function ProjectChatPage() {
     return () => { cancelled = true; };
   }, [projectId]);
 
-  useEffect(() => {
-    let active = true;
-    const syncTeam = async () => {
-      try {
-        const [nextMembers, nextPresence] = await Promise.all([
-          api.projects.members(projectId),
-          api.realtime.projectPresence(projectId),
-        ]);
-        if (!active) return;
-        setMembers(nextMembers);
-        setPresenceByUser(Object.fromEntries(nextPresence.map((item) => [item.userId, item])));
-      } catch { /* A presence outage should not interrupt messaging. */ }
-    };
-    void syncTeam();
-    const interval = window.setInterval(() => { void syncTeam(); }, 20_000);
-    return () => { active = false; window.clearInterval(interval); };
+  const loadTeam = useCallback(async () => {
+    try {
+      const [nextMembers, nextPresence] = await Promise.all([
+        api.projects.members(projectId),
+        api.realtime.projectPresence(projectId),
+      ]);
+      setMembers(nextMembers);
+      setPresenceByUser(Object.fromEntries(nextPresence.map((item) => [item.userId, item])));
+    } catch { /* A presence outage should not interrupt messaging. */ }
   }, [projectId]);
 
+  useEffect(() => { void loadTeam(); }, [loadTeam]);
+
+  // Subscribe to the single project stream owned by ProjectLayout instead of opening a second SSE connection.
   useEffect(() => {
-    let source: EventSource | null = null;
-    const connect = () => {
-      source?.close();
-      setConnected(false);
-      const token = window.localStorage.getItem("projectflow_access_token");
-      if (!token) return;
-      const nextSource = new EventSource(`${API_BASE_URL}/realtime/${projectId}/events?token=${encodeURIComponent(token)}`);
-      source = nextSource;
-      nextSource.addEventListener("connected", () => setConnected(true));
-      nextSource.onerror = () => setConnected(false);
-      nextSource.addEventListener("presence:changed", (event) => {
-        try {
-          const presence = messageFromEvent(event) as ProjectPresence;
-          if (presence?.userId) setPresenceByUser((current) => ({ ...current, [presence.userId]: { ...current[presence.userId], ...presence } }));
-        } catch { /* Ignore malformed presence events. */ }
-      });
-      nextSource.addEventListener("message:created", (event) => {
-        try {
-          const message = messageFromEvent(event) as ProjectChatMessage;
-          if (!message?._id || message.task) return;
-          setMessages((current) => current.some((m) => m._id === message._id) ? current : [...current, message].sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt)));
-          const authorId = String(message.author?._id || "");
-          if (authorId && authorId !== userId) {
-            const receipt = document.visibilityState === "visible" ? "read" : "delivered";
-            void api.messages.markReceipts(projectId, [message._id], receipt).catch(() => undefined);
-          }
-        } catch { /* Ignore malformed message events. */ }
-      });
-      nextSource.addEventListener("message:updated", (event) => {
-        try { const message = messageFromEvent(event) as ProjectChatMessage; setMessages((current) => current.map((m) => m._id === message._id ? { ...m, ...message } : m)); }
-        catch { /* Ignore malformed message events. */ }
-      });
-      nextSource.addEventListener("message:deleted", (event) => {
-        try { const payload = messageFromEvent(event) as { _id: string }; setMessages((current) => current.filter((m) => m._id !== payload._id)); }
-        catch { /* Ignore malformed message events. */ }
-      });
-      nextSource.addEventListener("message:receipt", (event) => {
-        try {
-          const receipt = messageFromEvent(event) as { messageId: string; deliveredTo: string[]; readBy: string[] };
-          setMessages((current) => current.map((m) => m._id === receipt.messageId ? { ...m, deliveredTo: receipt.deliveredTo || [], readBy: receipt.readBy || [] } : m));
-        } catch { /* Ignore malformed receipt events. */ }
-      });
-    };
-    connect();
-    window.addEventListener("projectflow:token-refreshed", connect);
-    return () => {
-      window.removeEventListener("projectflow:token-refreshed", connect);
-      source?.close();
-      setConnected(false);
-    };
-  }, [projectId, userId]);
+    const unsubscribeStatus = subscribeProjectRealtimeStatus(setConnected);
+    const unsubscribeEvents = subscribeProjectRealtime((event) => {
+      if (event.projectId !== projectId) return;
+      if (event.type === "presence:changed") {
+        const presence = event.payload as ProjectPresence;
+        if (presence?.userId) setPresenceByUser((current) => ({ ...current, [presence.userId]: { ...current[presence.userId], ...presence } }));
+        return;
+      }
+      if (["member:created", "member:updated", "member:removed"].includes(event.type)) {
+        void loadTeam();
+        return;
+      }
+      if (event.type === "message:created") {
+        const message = event.payload as ProjectChatMessage;
+        if (!message?._id || message.task) return;
+        setMessages((current) => current.some((item) => item._id === message._id) ? current : [...current, message].sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt)));
+        const authorId = String(typeof message.author === "object" ? message.author?._id || "" : message.author || "");
+        if (authorId && authorId !== userId) {
+          const receipt = document.visibilityState === "visible" ? "read" : "delivered";
+          void api.messages.markReceipts(projectId, [message._id], receipt).catch(() => undefined);
+        }
+        return;
+      }
+      if (event.type === "message:updated") {
+        const message = event.payload as ProjectChatMessage;
+        if (message?._id) setMessages((current) => current.map((item) => item._id === message._id ? { ...item, ...message } : item));
+        return;
+      }
+      if (event.type === "message:deleted") {
+        const payload = event.payload as { _id?: string };
+        if (payload?._id) setMessages((current) => current.filter((item) => item._id !== payload._id));
+        return;
+      }
+      if (event.type === "message:receipt") {
+        const receipt = event.payload as { messageId?: string; deliveredTo?: string[]; readBy?: string[] };
+        if (receipt?.messageId) setMessages((current) => current.map((item) => item._id === receipt.messageId ? { ...item, deliveredTo: receipt.deliveredTo || [], readBy: receipt.readBy || [] } : item));
+      }
+    });
+    return () => { unsubscribeStatus(); unsubscribeEvents(); };
+  }, [projectId, userId, loadTeam]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
 

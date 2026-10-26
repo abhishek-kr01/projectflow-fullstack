@@ -1,6 +1,8 @@
 import "dotenv/config";
 import app from "./app.js";
 import connectDB from "./db/index.js";
+import mongoose from "mongoose";
+import { stopPresenceSweep } from "./services/presence.service.js";
 
 const port = Number(process.env.PORT || 8000);
 
@@ -17,9 +19,24 @@ try {
     console.log(`🚀 ProjectFlow API listening on port ${port}`);
   });
 
+  let shuttingDown = false;
   const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log(`${signal} received; shutting down gracefully...`);
-    server.close(() => process.exit(0));
+    stopPresenceSweep();
+    const forceExit = setTimeout(() => {
+      console.error("Graceful shutdown timed out; closing remaining connections.");
+      server.closeAllConnections?.();
+      process.exit(1);
+    }, 10_000);
+    forceExit.unref();
+    server.close(() => {
+      void mongoose.disconnect().finally(() => {
+        clearTimeout(forceExit);
+        process.exit(0);
+      });
+    });
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));

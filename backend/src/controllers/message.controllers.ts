@@ -1,102 +1,65 @@
-import mongoose from "mongoose";
-import { Message } from "../models/message.models.js";
-import { Task } from "../models/task.models.js";
-import { ApiError } from "../utils/api-error.js";
 import { ApiResponse } from "../utils/api-response.js";
 import { asyncHandler } from "../utils/async-handler.js";
-import { publishProjectEvent } from "../utils/realtime.js";
-import { safelyNotifyProjectMembers } from "../services/notification.service.js";
+import {
+  createProjectMessage,
+  deleteProjectMessage,
+  listProjectMessages,
+  updateProjectMessage,
+  updateProjectMessageReceipts,
+  type MessageActor,
+} from "../services/message.service.js";
+
+const actorFromRequest = (req: any): MessageActor => ({
+  id: String(req.user._id),
+  role: req.projectRole,
+  username: req.user.username,
+  fullName: req.user.fullName,
+});
 
 export const listMessages = asyncHandler(async (req, res) => {
-  const projectId = req.params.projectId;
-  const filter: Record<string, unknown> = { project: projectId };
-  if (req.query.taskId) {
-    if (!mongoose.isValidObjectId(String(req.query.taskId))) throw new ApiError(400, "Invalid task id.");
-    filter.task = String(req.query.taskId);
-  } else filter.task = { $exists: false };
-  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
-  const messages = await Message.find(filter).populate("author", "username fullName avatar").sort({ createdAt: -1 }).limit(limit).lean();
-  return res.status(200).json(new ApiResponse(200, messages.reverse(), "Messages fetched."));
+  const messages = await listProjectMessages({
+    projectId: String(req.params.projectId),
+    taskId: req.query.taskId ? String(req.query.taskId) : undefined,
+    limit: Number(req.query.limit),
+  });
+  res.status(200).json(new ApiResponse(200, messages, "Messages fetched."));
 });
 
 export const createMessage = asyncHandler(async (req, res) => {
-  const projectId = req.params.projectId;
-  const content = String(req.body.content || "").trim();
-  if (!content || content.length > 5000) throw new ApiError(400, "Message must contain 1–5000 characters.");
-  let task: string | undefined;
-  if (req.body.taskId) {
-    if (!mongoose.isValidObjectId(String(req.body.taskId))) throw new ApiError(400, "Invalid task id.");
-    const exists = await Task.exists({ _id: req.body.taskId, project: projectId });
-    if (!exists) throw new ApiError(404, "Task not found in this project.");
-    task = String(req.body.taskId);
-  }
-  const message = await Message.create({ project: projectId, task, author: req.user._id, content });
-  const populated = await Message.findById(message._id).populate("author", "username fullName avatar").lean();
-  publishProjectEvent(projectId, "message:created", populated);
-  await safelyNotifyProjectMembers(projectId, req.user._id, {
-    type: "message_created", title: "New project chat message",
-    body: `${req.user.fullName || req.user.username || "A teammate"}: ${content.slice(0, 140)}`,
-    href: `/projects/${projectId}/chat`, entityType: "message", entityId: message._id,
+  const message = await createProjectMessage({
+    projectId: String(req.params.projectId),
+    actor: actorFromRequest(req),
+    content: String(req.body.content || ""),
+    taskId: req.body.taskId ? String(req.body.taskId) : undefined,
   });
-  return res.status(201).json(new ApiResponse(201, populated, "Message sent."));
+  res.status(201).json(new ApiResponse(201, message, "Message sent."));
 });
 
 export const updateMessageReceipts = asyncHandler(async (req, res) => {
-  const projectId = req.params.projectId;
-  const status = String(req.body.status || "");
-  if (status !== "delivered" && status !== "read") throw new ApiError(400, "Receipt status must be delivered or read.");
-  const rawIds = Array.isArray(req.body.messageIds) ? req.body.messageIds : [];
-  const messageIds = [...new Set(rawIds.map((id: unknown) => String(id)))].slice(0, 100);
-  if (!messageIds.length || messageIds.some((id) => !mongoose.isValidObjectId(id))) {
-    throw new ApiError(400, "Provide one or more valid message ids.");
-  }
-
-  const receipts: Array<{ messageId: string; deliveredTo: string[]; readBy: string[] }> = [];
-  for (const messageId of messageIds) {
-    const message = await Message.findOne({ _id: messageId, project: projectId });
-    if (!message || String(message.author) === String(req.user._id)) continue;
-    const update: Record<string, unknown> = { $addToSet: { deliveredTo: req.user._id } };
-    if (status === "read") (update.$addToSet as Record<string, unknown>).readBy = req.user._id;
-    const updated = await Message.findByIdAndUpdate(messageId, update, { new: true }).select("_id deliveredTo readBy").lean();
-    if (!updated) continue;
-    const receipt = {
-      messageId: String(updated._id),
-      userId: String(req.user._id),
-      status,
-      deliveredTo: (updated.deliveredTo || []).map((id: any) => String(id)),
-      readBy: (updated.readBy || []).map((id: any) => String(id)),
-    };
-    receipts.push({ messageId: receipt.messageId, deliveredTo: receipt.deliveredTo, readBy: receipt.readBy });
-    publishProjectEvent(projectId, "message:receipt", receipt);
-  }
-  return res.status(200).json(new ApiResponse(200, receipts, "Message receipts updated."));
+  const receipts = await updateProjectMessageReceipts({
+    projectId: String(req.params.projectId),
+    actorId: String(req.user._id),
+    messageIds: Array.isArray(req.body.messageIds) ? req.body.messageIds : [],
+    status: String(req.body.status || ""),
+  });
+  res.status(200).json(new ApiResponse(200, receipts, "Message receipts updated."));
 });
 
 export const updateMessage = asyncHandler(async (req, res) => {
-  const message = await Message.findOne({ _id: req.params.messageId, project: req.params.projectId });
-  if (!message) throw new ApiError(404, "Message not found.");
-  if (String(message.author) !== String(req.user._id) && req.user.role !== "admin" && req.user.role !== "project_admin") throw new ApiError(403, "You can only edit your own messages.");
-  const content = String(req.body.content || "").trim();
-  if (!content || content.length > 5000) throw new ApiError(400, "Message must contain 1–5000 characters.");
-  message.content = content; message.editedAt = new Date(); await message.save();
-  const populated = await Message.findById(message._id).populate("author", "username fullName avatar").lean();
-  publishProjectEvent(req.params.projectId, "message:updated", populated);
-  await safelyNotifyProjectMembers(req.params.projectId, req.user._id, {
-    type: "message_updated", title: "A chat message was edited", body: "A project chat message was updated.",
-    href: `/projects/${req.params.projectId}/chat`, entityType: "message", entityId: message._id,
+  const message = await updateProjectMessage({
+    projectId: String(req.params.projectId),
+    messageId: String(req.params.messageId),
+    actor: actorFromRequest(req),
+    content: String(req.body.content || ""),
   });
-  return res.status(200).json(new ApiResponse(200, populated, "Message updated."));
+  res.status(200).json(new ApiResponse(200, message, "Message updated."));
 });
 
 export const deleteMessage = asyncHandler(async (req, res) => {
-  const message = await Message.findOne({ _id: req.params.messageId, project: req.params.projectId });
-  if (!message) throw new ApiError(404, "Message not found.");
-  if (String(message.author) !== String(req.user._id) && req.user.role !== "admin" && req.user.role !== "project_admin") throw new ApiError(403, "You can only delete your own messages.");
-  await message.deleteOne();
-  publishProjectEvent(req.params.projectId, "message:deleted", { _id: req.params.messageId });
-  await safelyNotifyProjectMembers(req.params.projectId, req.user._id, {
-    type: "message_deleted", title: "A chat message was deleted", body: "A project chat message was removed.",
-    href: `/projects/${req.params.projectId}/chat`, entityType: "message", entityId: req.params.messageId,
+  const result = await deleteProjectMessage({
+    projectId: String(req.params.projectId),
+    messageId: String(req.params.messageId),
+    actor: actorFromRequest(req),
   });
-  return res.status(200).json(new ApiResponse(200, { _id: req.params.messageId }, "Message deleted."));
+  res.status(200).json(new ApiResponse(200, result, "Message deleted."));
 });

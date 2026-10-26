@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { ArrowRight, CalendarDays, FileText, Pencil, Plus, Search, StickyNote, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { subscribeProjectRealtime } from "@/lib/project-realtime";
 import { useAuth } from "@/lib/auth-context";
 import type { ProjectNote, UserRole } from "@/lib/types";
 import { Avatar, EmptyState, ErrorMessage, LoadingBlock, Modal, Toast, type ToastMessage } from "@/components/ui";
@@ -19,15 +20,9 @@ export default function ProjectNotesPage() {
 
   const load = useCallback(async () => { setLoading(true); setError(""); try { const [next, project] = await Promise.all([api.notes.list(projectId), api.projects.get(projectId)]); setMyRole(project?.myRole); setNotes(Array.isArray(next) ? [...next].sort((a,b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime()) : []); } catch (err) { setError(err instanceof Error ? err.message : "Could not load project notes."); } finally { setLoading(false); } }, [projectId]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    const token = typeof window !== "undefined" ? window.localStorage.getItem("projectflow_access_token") : null;
-    if (!token || !projectId) return;
-    const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1").replace(/\/+$/, "");
-    const source = new EventSource(`${baseUrl}/realtime/${projectId}/events?token=${encodeURIComponent(token)}`);
-    const refresh = () => { void load(); };
-    ["note:created", "note:updated", "note:deleted"].forEach((eventName) => source.addEventListener(eventName, refresh));
-    return () => { ["note:created", "note:updated", "note:deleted"].forEach((eventName) => source.removeEventListener(eventName, refresh)); source.close(); };
-  }, [projectId, load]);
+  useEffect(() => subscribeProjectRealtime((event) => {
+    if (event.projectId === projectId && ["note:created", "note:updated", "note:deleted"].includes(event.type)) void load();
+  }), [projectId, load]);
   const filtered = useMemo(() => { const term = search.trim().toLowerCase(); return notes.filter((note) => !term || note.content.toLowerCase().includes(term) || (note.createdBy?.username || "").toLowerCase().includes(term)); }, [notes, search]);
   const canWriteNotes = Boolean(myRole);
   const canEditNote = (note: ProjectNote) => myRole === "admin" || myRole === "project_admin" || note.createdBy?._id === user?._id;

@@ -28,14 +28,14 @@ ProjectFlow is a responsive project-management application built with **Next.js 
 projectflow-fullstack/
 ├── backend/
 │   ├── src/
-│   │   ├── controllers/       # API business logic
+│   │   ├── controllers/       # HTTP request/response handlers
 │   │   ├── db/                # MongoDB connection
 │   │   ├── middlewares/       # Auth, validation, uploads, errors
 │   │   ├── models/            # Mongoose schemas and methods
-│   │   ├── services/          # Notification delivery helpers
+│   │   ├── services/          # Domain logic, persistence orchestration, realtime and notifications
 │   │   ├── routes/            # Express API routes
 │   │   ├── types/             # Express request type augmentation
-│   │   ├── utils/             # Responses, errors, mail, constants, realtime event bus
+│   │   ├── utils/             # Responses, errors, mail, constants, SSE transport helpers
 │   │   └── index.ts            # TypeScript entry point
 │   ├── public/images/          # Local upload location (development)
 │   ├── .env.example
@@ -161,6 +161,7 @@ If you later add a custom frontend domain, include that origin in `CORS_ORIGIN` 
 | `/projects/[projectId]/tasks` | Project task board | Authenticated |
 | `/projects/[projectId]/members` | Project members and roles | Authenticated |
 | `/projects/[projectId]/notes` | Project notes | Authenticated |
+| `/projects/[projectId]/chat` | Persistent project chat with live events and message receipts | Authenticated |
 | `/tasks`, `/settings` | Task tracker and account settings | Authenticated |
 
 ## API routes
@@ -177,8 +178,8 @@ All routes are prefixed with `/api/v1`.
 | Tasks | `GET/POST /tasks/:projectId`, `GET/PUT/DELETE /tasks/:projectId/t/:taskId` | Authenticated; project roles apply |
 | Subtasks | `POST /tasks/:projectId/t/:taskId/subtasks`, `PUT/DELETE /tasks/:projectId/st/:subTaskId` | Authenticated; project roles apply |
 | Notes | `GET/POST /notes/:projectId`, `GET/PUT/DELETE /notes/:projectId/n/:noteId` | Authenticated; project roles apply |
-| Notifications | `GET /notifications`, `PATCH /notifications/read-all`, `PATCH /notifications/:notificationId/read`, `DELETE /notifications/:notificationId` | Authenticated; users can only access their own notifications |
-| Realtime | `GET /realtime/:projectId/events`, `GET /realtime/users/notifications/events` | Access token plus project membership for project events; authenticated user for notification stream |
+| Notifications | `GET /notifications`, `PATCH /notifications/read-all`, `PATCH /notifications/:notificationId/read`, `PATCH /notifications/projects/:projectId/messages/read`, `DELETE /notifications/:notificationId` | Authenticated; users can only access their own notifications |
+| Realtime | `GET /realtime/:projectId/events`, `GET /realtime/users/notifications/events`, `POST /realtime/presence`, `GET /realtime/:projectId/presence` | Authenticated HTTP-only cookie or bearer token; project membership required for project streams/presence |
 
 The API returns a consistent envelope: `{ statusCode, success, message, data }`. Errors include `success: false` and a human-readable `message`. Task statuses are canonically `todo`, `in_progress`, and `done`.
 
@@ -198,6 +199,7 @@ Backend (`cd backend`):
 ```bash
 npm run dev        # Run TypeScript source with reload
 npm run typecheck  # Type-check without emitting
+npm test           # Unit tests for event bus and SSE lifecycle
 npm run build      # Compile TypeScript to dist/
 npm start          # Run compiled production server
 ```
@@ -215,10 +217,8 @@ npm start
 ## Realtime collaboration and project chat
 
 The API exposes an authenticated Server-Sent Events endpoint at
-`GET /api/v1/realtime/:projectId/events?token=<access-token>`. It checks the
-access token and project membership before streaming project-scoped events.
-Task/subtask creation, update, assignment and deletion; note create/update/delete; project chat activity; project edits; and membership changes are published by the API. Notification records are persisted in MongoDB, and the user-wide SSE route sends fresh notifications to the notification bell. The project task board listens for task events and reloads its
-current data. SSE is a single-server event bus: if you scale the API to multiple
+`GET /api/v1/realtime/:projectId/events`. Browser EventSource uses `withCredentials: true`; the backend authenticates the HTTP-only access cookie through the shared `verifyJWT` middleware and checks project membership before streaming project-scoped events.
+Task/subtask creation, update, assignment and deletion; note create/update/delete; project chat activity; project edits; and membership changes are published by the API. Notification records are persisted in MongoDB, and the user-wide SSE route sends fresh notifications to the notification bell. The project layout owns one project-scoped SSE stream and dispatches typed events through `frontend/lib/project-realtime.ts`; task, notes, members, and chat views subscribe to this bridge instead of opening duplicate streams. The project task board listens for task events and reloads its current data. Membership removal revokes the active stream. SSE is a single-server event bus: if you scale the API to multiple
 instances, move event fan-out to a shared broker (for example Redis Pub/Sub) or
 a Socket.IO adapter before scaling horizontally.
 
@@ -236,10 +236,7 @@ reference for that next workflow, but the current chat UI is project-wide.
   storage (S3/Cloudinary) before relying on uploaded files across redeploys.
 - SSE currently uses a process-local event bus. A single Render service works;
   multiple instances require shared pub/sub.
-- The access token is passed in the SSE query string because native
-  `EventSource` cannot set an Authorization header. Keep access tokens short
-  lived, use HTTPS in production, and consider a fetch-stream client or
-  authenticated cookie-only SSE before handling sensitive/high-scale traffic.
+- EventSource now uses the HTTP-only access cookie with `withCredentials: true` instead of putting the access token in the URL. Keep CORS origins restricted and cookie settings correct for the deployed frontend/backend domains.
 - Run `npm run build` in both packages and test auth, task permissions, chat,
   email flows, and CORS with real environment values before deployment.
 - This package is a strengthened MVP, not a claim of full Jira feature parity.
@@ -269,9 +266,7 @@ chat messages, project edits, and member/role changes. The API supports listing
 notifications, marking one or all as read, and deleting the current user's own
 notifications.
 
-The frontend listens to `GET /api/v1/realtime/users/notifications/events?token=<access-token>`
-for new notification events while authenticated. This stream uses a process-local
-EventEmitter, so it is suitable for a single backend instance only. To scale to
+The frontend listens to `GET /api/v1/realtime/users/notifications/events` with credentialed EventSource and HTTP-only auth cookies. This stream uses a process-local EventEmitter, so it is suitable for a single backend instance only. To scale to
 multiple Render instances, publish user events through a shared broker such as
 Redis Pub/Sub and add notification retention/preferences to avoid noisy chat feeds.
 
@@ -287,7 +282,7 @@ counts stay consistent.
 - Project chat messages now persist `deliveredTo` and `readBy` user IDs. The sender sees a single tick after persistence, double gray ticks after all other current project members have received the message, and double blue ticks after all have read it. For a multi-member project chat, members who are offline or have not opened the project may delay the all-delivered/all-read state.
 - Opening a project chat marks older message notifications for that project read. While a user's visible session is actively viewing that project's chat, incoming project chat messages do not create redundant notification-bell entries. Chat notifications for other projects and non-chat activity remain enabled.
 - Realtime events currently use an in-memory event bus and SSE. This is appropriate for a single backend instance; multiple backend instances require a shared broker (for example Redis Pub/Sub) so every instance receives the same presence, receipt, and notification events.
-- The SSE connection currently takes the short-lived access token as a query parameter because the native browser `EventSource` API cannot set an Authorization header. Before a sensitive/high-traffic production launch, prefer short-lived, single-use SSE tickets or a fetch-stream client that can send Authorization headers. Do not log full realtime URLs.
+- SSE uses the HTTP-only access cookie because native browser `EventSource` cannot set Authorization headers. The token is no longer included in the URL. Keep CORS allowlists and production cookie settings locked down.
 
 ### Presence and chat receipt test
 
@@ -297,3 +292,31 @@ counts stay consistent.
 4. Open the Project Members tab and confirm online dots/status update. Close the other browser; it should become offline after the presence heartbeat expires (up to roughly 45 seconds plus the next sweep interval).
 5. Confirm unread notifications from older chat messages for that project clear when its Chat tab is opened.
 
+
+
+## Backend architecture conventions
+
+The backend uses a layered structure so route modules stay declarative:
+
+- `routes/`: endpoint declarations and middleware wiring only.
+- `middlewares/`: authentication, request validation and project access.
+- `controllers/`: HTTP request/response handling, including lifecycle management for SSE responses.
+- `services/`: business rules and persistence orchestration (`auth.service.ts`, `project.service.ts`, `task.service.ts`, `message.service.ts`, `project-note.service.ts`, `project-access.service.ts`, `presence.service.ts`, `realtime.service.ts`, `notification.service.ts`).
+- `models/`: MongoDB/Mongoose schemas.
+- `utils/sse.ts`: reusable SSE headers, heartbeat, event formatting and response-close cleanup.
+- `validators/`: reusable request validation schemas.
+
+Realtime routes now delegate to `controllers/realtime.controllers.ts`; presence storage lives in `services/presence.service.ts`; the process-local event bus lives in `services/realtime.service.ts`. SSE streams are closed from the response `close` lifecycle event, not the request `close` event. Frontend streams use credentialed EventSource and HTTP-only auth cookies instead of putting a long-lived access token in the stream URL.
+
+The current event bus and presence registry are process-local. For multiple backend instances, introduce a shared broker/store (for example Redis Pub/Sub plus shared presence/TTL storage) before scaling horizontally.
+
+## Verification report
+
+See [`docs/VERIFICATION-REPORT.md`](docs/VERIFICATION-REPORT.md) for the exact source checks performed and the builds/end-to-end checks that still need to run on a dependency-installed machine.
+
+## Architecture reference
+
+The project stream is centralized in the project layout; the user-wide notification stream and per-tab presence heartbeat are centralized in the dashboard shell. See `ARCHITECTURE.md` and `docs/AUDIT-AND-STRUCTURE.md` for responsibilities and remaining production limits.
+
+
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for responsibility boundaries, realtime behavior, deployment constraints, and the verification checklist. `docs/AUDIT-AND-STRUCTURE.md` records the audit findings and key design choices.

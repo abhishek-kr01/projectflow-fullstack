@@ -1,10 +1,10 @@
 import type { RequestHandler } from "express";
 import mongoose from "mongoose";
 import jwt, { type JwtPayload } from "jsonwebtoken";
-import { ProjectMember } from "../models/projectmember.models.js";
 import { User } from "../models/user.models.js";
 import { ApiError } from "../utils/api-error.js";
 import { asyncHandler } from "../utils/async-handler.js";
+import { requireProjectMembership } from "../services/project-access.service.js";
 
 export const verifyJWT = asyncHandler(async (req, res, next) => {
   const authorization = req.header("Authorization");
@@ -34,9 +34,11 @@ export const validateProjectPermission = (roles: string[] = []): RequestHandler 
   const { projectId } = req.params;
   if (!projectId || !mongoose.isValidObjectId(projectId)) throw new ApiError(400, "A valid project id is required.");
 
-  const membership = await ProjectMember.findOne({ project: projectId, user: req.user?._id }).lean();
-  if (!membership) throw new ApiError(403, "You do not have access to this project.");
-  if (!roles.includes(membership.role)) throw new ApiError(403, "You do not have permission to perform this action.");
-  req.user.role = membership.role;
+  const membership = await requireProjectMembership({
+    projectId,
+    userId: String(req.user?._id || ""),
+    allowedRoles: roles,
+  });
+  req.projectRole = membership.role;
   next();
 });

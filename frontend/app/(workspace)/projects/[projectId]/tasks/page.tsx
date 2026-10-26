@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { ArrowRight, Check, CheckCircle2, Circle, Clock3, ClipboardList, MoreHorizontal, Paperclip, Plus, Search, Trash2, UserRound } from "lucide-react";
 import { api, normalizeStatus, statusForApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { ProjectMember, Subtask, Task, TaskStatus } from "@/lib/types";
+import { subscribeProjectRealtime } from "@/lib/project-realtime";
 import { Avatar, EmptyState, ErrorMessage, LoadingBlock, Modal, Toast, type ToastMessage } from "@/components/ui";
 
 const columns: { id: TaskStatus; label: string; caption: string; icon: typeof Circle; color: string; bg: string }[] = [
@@ -23,21 +24,23 @@ export default function ProjectTasksPage() {
   const params = useParams<{ projectId: string }>(); const projectId = params.projectId; const { user } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]); const [members, setMembers] = useState<ProjectMember[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false); const [newTitle, setNewTitle] = useState(""); const [newDescription, setNewDescription] = useState(""); const [newAssignee, setNewAssignee] = useState(""); const [newFiles, setNewFiles] = useState<File[]>([]); const [fileError, setFileError] = useState(""); const [createBusy, setCreateBusy] = useState(false); const [createError, setCreateError] = useState("");
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null); const [detailLoading, setDetailLoading] = useState(false); const [editTitle, setEditTitle] = useState(""); const [editDescription, setEditDescription] = useState(""); const [editAssignee, setEditAssignee] = useState(""); const [editStatus, setEditStatus] = useState<TaskStatus>("todo"); const [editBusy, setEditBusy] = useState(false); const [subtaskTitle, setSubtaskTitle] = useState(""); const [subtaskBusy, setSubtaskBusy] = useState(false); const [busyTaskIds, setBusyTaskIds] = useState<string[]>([]); const [toast, setToast] = useState<ToastMessage>(null); const [deleteTask, setDeleteTask] = useState<Task | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const selectedTaskIdRef = useRef<string | null>(null);
+  selectedTaskIdRef.current = selectedTask?._id || null; const [detailLoading, setDetailLoading] = useState(false); const [editTitle, setEditTitle] = useState(""); const [editDescription, setEditDescription] = useState(""); const [editAssignee, setEditAssignee] = useState(""); const [editStatus, setEditStatus] = useState<TaskStatus>("todo"); const [editBusy, setEditBusy] = useState(false); const [subtaskTitle, setSubtaskTitle] = useState(""); const [subtaskBusy, setSubtaskBusy] = useState(false); const [busyTaskIds, setBusyTaskIds] = useState<string[]>([]); const [toast, setToast] = useState<ToastMessage>(null); const [deleteTask, setDeleteTask] = useState<Task | null>(null);
 
   const load = useCallback(async () => { setLoading(true); setError(""); try { const [nextTasks, nextMembers] = await Promise.all([api.tasks.list(projectId), api.projects.members(projectId).catch(() => [])]); setTasks(Array.isArray(nextTasks) ? nextTasks : []); setMembers(nextMembers); } catch (err) { setError(err instanceof Error ? err.message : "Could not load tasks."); } finally { setLoading(false); } }, [projectId]);
   useEffect(() => { void load(); }, [load]);
-  // Server-sent events keep this board in sync with changes made by other project members.
-  useEffect(() => {
-    const token = typeof window !== "undefined" ? window.localStorage.getItem("projectflow_access_token") : null;
-    if (!token || !projectId) return;
-    const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1").replace(/\/+$/, "");
-    const source = new EventSource(`${baseUrl}/realtime/${projectId}/events?token=${encodeURIComponent(token)}`);
-    const refresh = () => { void load(); };
-    ["task:created", "task:updated", "task:deleted"].forEach((eventName) => source.addEventListener(eventName, refresh));
-    source.onerror = () => { /* EventSource retries automatically when the connection is restored. */ };
-    return () => { ["task:created", "task:updated", "task:deleted"].forEach((eventName) => source.removeEventListener(eventName, refresh)); source.close(); };
-  }, [projectId, load]);
+  // The project layout owns the only SSE connection; this page subscribes to its event bridge.
+  useEffect(() => subscribeProjectRealtime((event) => {
+    if (event.projectId !== projectId) return;
+    if (["task:created", "task:updated", "task:deleted", "subtask:created", "subtask:updated", "subtask:deleted"].includes(event.type)) {
+      void load();
+      const selectedId = selectedTaskIdRef.current;
+      if (selectedId && event.type.startsWith("subtask:")) {
+        void api.tasks.get(projectId, selectedId).then(setSelectedTask).catch(() => undefined);
+      }
+    }
+  }), [projectId, load]);
   const myRole = members.find((member) => member.user?._id === user?._id)?.role;
   const canManageTasks = myRole === "admin" || myRole === "project_admin";
   const canDeleteTasks = myRole === "admin";

@@ -1,64 +1,54 @@
-import { ProjectNote } from "../models/projectnote.models.js";
-import { Project } from "../models/project.models.js";
 import { ApiResponse } from "../utils/api-response.js";
-import { ApiError } from "../utils/api-error.js";
 import { asyncHandler } from "../utils/async-handler.js";
-import { UserRolesEnum } from "../utils/constants.js";
-import { publishProjectEvent } from "../utils/realtime.js";
-import { safelyNotifyProjectMembers } from "../services/notification.service.js";
+import {
+  createProjectNote,
+  deleteProjectNote,
+  getProjectNote,
+  listProjectNotes,
+  updateProjectNote,
+} from "../services/project-note.service.js";
+
+const actorFromRequest = (req: any) => ({
+  id: String(req.user._id),
+  role: req.projectRole,
+  username: req.user.username,
+  fullName: req.user.fullName,
+});
 
 export const getNotes = asyncHandler(async (req, res) => {
-  const { projectId } = req.params;
-  const notes = await ProjectNote.find({ project: projectId }).populate("createdBy", "username email fullName avatar").sort({ updatedAt: -1 });
-  return res.status(200).json(new ApiResponse(200, notes, "Notes fetched successfully."));
+  const notes = await listProjectNotes(String(req.params.projectId));
+  res.status(200).json(new ApiResponse(200, notes, "Notes fetched successfully."));
 });
 
 export const createNote = asyncHandler(async (req, res) => {
-  const { projectId } = req.params;
-  const project = await Project.findById(projectId).select("_id");
-  if (!project) throw new ApiError(404, "Project not found.");
-  const note = await ProjectNote.create({ project: projectId, content: String(req.body.content).trim(), createdBy: req.user._id });
-  const populated = await ProjectNote.findById(note._id).populate("createdBy", "username email fullName avatar");
-  publishProjectEvent(projectId, "note:created", populated);
-  await safelyNotifyProjectMembers(projectId, req.user._id, {
-    type: "note_created", title: "A project note was added",
-    body: `${req.user.fullName || req.user.username || "A teammate"} added a note.`,
-    href: `/projects/${projectId}/notes`, entityType: "note", entityId: note._id,
+  const note = await createProjectNote({
+    projectId: String(req.params.projectId),
+    actor: actorFromRequest(req),
+    content: String(req.body.content),
   });
-  return res.status(201).json(new ApiResponse(201, populated, "Note created successfully."));
+  res.status(201).json(new ApiResponse(201, note, "Note created successfully."));
 });
 
 export const getNoteById = asyncHandler(async (req, res) => {
-  const note = await ProjectNote.findOne({ _id: req.params.noteId, project: req.params.projectId }).populate("createdBy", "username email fullName avatar");
-  if (!note) throw new ApiError(404, "Note not found in this project.");
-  return res.status(200).json(new ApiResponse(200, note, "Note fetched successfully."));
+  const note = await getProjectNote(String(req.params.projectId), String(req.params.noteId));
+  res.status(200).json(new ApiResponse(200, note, "Note fetched successfully."));
 });
 
 export const updateNote = asyncHandler(async (req, res) => {
-  const note = await ProjectNote.findOne({ _id: req.params.noteId, project: req.params.projectId });
-  if (!note) throw new ApiError(404, "Note not found in this project.");
-  if (req.user?.role === UserRolesEnum.MEMBER && String(note.createdBy) !== String(req.user._id)) {
-    throw new ApiError(403, "Members can only edit notes they created.");
-  }
-  if (req.body.content !== undefined) note.content = String(req.body.content).trim();
-  await note.save();
-  const populated = await ProjectNote.findById(note._id).populate("createdBy", "username email fullName avatar");
-  publishProjectEvent(req.params.projectId, "note:updated", populated);
-  await safelyNotifyProjectMembers(req.params.projectId, req.user._id, {
-    type: "note_updated", title: "A project note was updated",
-    body: `${req.user.fullName || req.user.username || "A teammate"} updated a project note.`,
-    href: `/projects/${req.params.projectId}/notes`, entityType: "note", entityId: note._id,
+  const note = await updateProjectNote({
+    projectId: String(req.params.projectId),
+    noteId: String(req.params.noteId),
+    actor: actorFromRequest(req),
+    content: req.body.content === undefined ? undefined : String(req.body.content),
   });
-  return res.status(200).json(new ApiResponse(200, populated, "Note updated successfully."));
+  res.status(200).json(new ApiResponse(200, note, "Note updated successfully."));
 });
 
 export const deleteNote = asyncHandler(async (req, res) => {
-  const note = await ProjectNote.findOneAndDelete({ _id: req.params.noteId, project: req.params.projectId });
-  if (!note) throw new ApiError(404, "Note not found in this project.");
-  publishProjectEvent(req.params.projectId, "note:deleted", { _id: req.params.noteId });
-  await safelyNotifyProjectMembers(req.params.projectId, req.user._id, {
-    type: "note_deleted", title: "A project note was deleted", body: "A project note was removed.",
-    href: `/projects/${req.params.projectId}/notes`, entityType: "note", entityId: req.params.noteId,
+  const note = await deleteProjectNote({
+    projectId: String(req.params.projectId),
+    noteId: String(req.params.noteId),
+    actorId: String(req.user._id),
   });
-  return res.status(200).json(new ApiResponse(200, note, "Note deleted successfully."));
+  res.status(200).json(new ApiResponse(200, note, "Note deleted successfully."));
 });

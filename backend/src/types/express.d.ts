@@ -1,9 +1,8 @@
-import type { HydratedDocument } from "mongoose";
-
 declare global {
   namespace Express {
     interface Request {
       user?: any;
+      projectRole?: import("../utils/constants.js").UserRole;
     }
   }
 }

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Plus, Search, ShieldCheck, Shield, Trash2, Users, UserPlus } from "lucide-react";
-import { API_BASE_URL, api } from "@/lib/api";
+import { api } from "@/lib/api";
+import { subscribeProjectRealtime } from "@/lib/project-realtime";
 import type { ProjectMember, ProjectPresence, UserRole } from "@/lib/types";
 import { Avatar, EmptyState, ErrorMessage, LoadingBlock, Modal, Toast, type ToastMessage } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
@@ -19,7 +20,6 @@ export default function ProjectMembersPage() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     let active = true;
-    let source: EventSource | null = null;
     const syncPresence = async () => {
       try {
         const result = await api.realtime.projectPresence(projectId);
@@ -27,25 +27,19 @@ export default function ProjectMembersPage() {
       } catch { /* Presence is supplemental; keep member management usable. */ }
     };
     void syncPresence();
-    const timer = window.setInterval(() => { void syncPresence(); }, 20_000);
-    const connect = () => {
-      source?.close();
-      const token = window.localStorage.getItem("projectflow_access_token");
-      if (!token) return;
-      const nextSource = new EventSource(`${API_BASE_URL}/realtime/${projectId}/events?token=${encodeURIComponent(token)}`);
-      source = nextSource;
-      nextSource.addEventListener("presence:changed", (event) => {
-        try {
-          const envelope = JSON.parse((event as MessageEvent).data);
-          const next = envelope?.payload as ProjectPresence;
-          if (next?.userId) setPresenceByUser((current) => ({ ...current, [next.userId]: { ...current[next.userId], ...next } }));
-        } catch { /* Ignore malformed presence event. */ }
-      });
-    };
-    connect();
-    window.addEventListener("projectflow:token-refreshed", connect);
-    return () => { active = false; window.clearInterval(timer); window.removeEventListener("projectflow:token-refreshed", connect); source?.close(); };
-  }, [projectId]);
+    const unsubscribe = subscribeProjectRealtime((event) => {
+      if (event.projectId !== projectId) return;
+      if (event.type === "presence:changed") {
+        const next = event.payload as ProjectPresence;
+        if (next?.userId) setPresenceByUser((current) => ({ ...current, [next.userId]: { ...current[next.userId], ...next } }));
+      }
+      if (["member:created", "member:updated", "member:removed"].includes(event.type)) {
+        void load();
+        void syncPresence();
+      }
+    });
+    return () => { active = false; unsubscribe(); };
+  }, [projectId, load]);
 
   const filtered = members.filter((member) => `${member.user?.fullName || ""} ${member.user?.username || ""} ${member.user?.email || ""}`.toLowerCase().includes(search.trim().toLowerCase()));
   const admins = members.filter((member) => member.role === "admin" || member.role === "project_admin").length;
