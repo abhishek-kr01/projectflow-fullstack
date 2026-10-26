@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { API_BASE_URL, api } from "@/lib/api";
+import { API_BASE_URL, api, getPresenceSessionId } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { AppNotification, Project } from "@/lib/types";
 import { Avatar, BrandMark } from "@/components/ui";
@@ -79,6 +79,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           window.dispatchEvent(new Event("projectflow:notification-changed"));
         } catch { /* Ignore malformed events and keep the stream alive. */ }
       });
+      const refreshAfterRead = () => { window.dispatchEvent(new Event("projectflow:notification-changed")); };
+      nextSource.addEventListener("notification:read", refreshAfterRead);
+      nextSource.addEventListener("notification:read-all", refreshAfterRead);
+      nextSource.addEventListener("notification:read-context", refreshAfterRead);
+      nextSource.addEventListener("notification:deleted", refreshAfterRead);
     };
     connect();
     window.addEventListener("projectflow:token-refreshed", connect);
@@ -90,6 +95,46 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       window.removeEventListener("projectflow:notification-changed", refresh);
     };
   }, [status, loadNotifications]);
+
+  // Keep per-tab presence current so chat notifications can be suppressed while that chat is visible.
+  useEffect(() => {
+    if (status !== "authenticated" || !user?._id) return;
+    const sessionId = getPresenceSessionId();
+    const projectMatch = pathname.match(/^\/projects\/([^/]+)/);
+    const activeProjectId = projectMatch?.[1] || null;
+    const resolveView = () => {
+      if (document.visibilityState !== "visible") return "background" as const;
+      if (pathname.endsWith("/chat")) return "chat" as const;
+      if (activeProjectId) return "project" as const;
+      if (pathname === "/dashboard") return "dashboard" as const;
+      return "workspace" as const;
+    };
+    const heartbeat = () => {
+      void api.realtime.updatePresence({ sessionId, activeProjectId, activeView: resolveView() }).catch(() => undefined);
+    };
+    const closePresence = () => {
+      const token = window.localStorage.getItem("projectflow_access_token");
+      if (!token) return;
+      void fetch(`${API_BASE_URL}/realtime/presence`, {
+        method: "POST", keepalive: true, credentials: "include",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sessionId, status: "offline" }),
+      }).catch(() => undefined);
+    };
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 15_000);
+    window.addEventListener("focus", heartbeat);
+    window.addEventListener("pageshow", heartbeat);
+    window.addEventListener("pagehide", closePresence);
+    document.addEventListener("visibilitychange", heartbeat);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", heartbeat);
+      window.removeEventListener("pageshow", heartbeat);
+      window.removeEventListener("pagehide", closePresence);
+      document.removeEventListener("visibilitychange", heartbeat);
+    };
+  }, [status, user?._id, pathname]);
 
   useEffect(() => { setMobileOpen(false); }, [pathname]);
 
@@ -122,6 +167,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   };
 
   const onLogout = async () => {
+    try { await api.realtime.updatePresence({ sessionId: getPresenceSessionId(), status: "offline" }); } catch { /* Session logout must proceed even if presence cannot be updated. */ }
     await logout();
     router.replace("/login");
   };
@@ -212,7 +258,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <button className="icon-btn h-9 w-9" title="Shortcuts" onClick={() => router.push("/projects")}><Command size={16}/></button>
           <button className="icon-btn relative h-9 w-9" title="Help & guidance" onClick={() => window.open("https://github.com/abhishek-kr01/projectmgmt-backend", "_blank", "noopener,noreferrer")}><CircleHelp size={16}/></button>
           <div className="mx-1 hidden h-7 w-px bg-[#eceaf3] sm:block"/>
-          <div className="relative flex items-center gap-2"><Avatar name={displayName} size="xs"/><span className="hidden max-w-[120px] truncate text-[11px] font-[700] text-[#514e65] lg:block">{firstName}</span><button className="flex h-7 w-5 items-center justify-center text-[#706d7c]" onClick={() => setProfileOpen((v) => !v)} aria-label="Open account menu"><ChevronDown size={14}/></button>{profileOpen && <div className="absolute right-0 top-10 z-50 w-52 rounded-2xl border border-[#eceaf3] bg-white p-2 shadow-xl"><div className="border-b border-[#f0eef6] px-3 py-2.5"><div className="truncate text-xs font-bold">{displayName}</div><div className="mt-1 truncate text-[10px] text-[#706d7d]">{user?.email}</div></div><Link className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs text-[#6b687e] hover:bg-[#f8f7fc]" href="/settings" onClick={() => setProfileOpen(false)}><Settings2 size={14}/> Account settings</Link><button onClick={onLogout} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-xs text-[#b84b5c] hover:bg-[#fff3f4]"><LogOut size={14}/> Sign out</button></div>}</div>
+          <div className="relative flex items-center gap-2"><span className="relative inline-flex"><Avatar name={displayName} size="xs"/><span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-[#36b37e]" title="You are online" aria-label="You are online"/></span><span className="hidden max-w-[120px] truncate text-[11px] font-[700] text-[#514e65] lg:block">{firstName}</span><button className="flex h-7 w-5 items-center justify-center text-[#706d7c]" onClick={() => setProfileOpen((v) => !v)} aria-label="Open account menu"><ChevronDown size={14}/></button>{profileOpen && <div className="absolute right-0 top-10 z-50 w-52 rounded-2xl border border-[#eceaf3] bg-white p-2 shadow-xl"><div className="border-b border-[#f0eef6] px-3 py-2.5"><div className="truncate text-xs font-bold">{displayName}</div><div className="mt-1 truncate text-[10px] text-[#706d7d]">{user?.email}</div></div><Link className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs text-[#6b687e] hover:bg-[#f8f7fc]" href="/settings" onClick={() => setProfileOpen(false)}><Settings2 size={14}/> Account settings</Link><button onClick={onLogout} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-xs text-[#b84b5c] hover:bg-[#fff3f4]"><LogOut size={14}/> Sign out</button></div>}</div>
         </div>
       </header>
       <main className="mx-auto min-h-[calc(100vh-68px)] w-full max-w-[1500px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-9">{children}<footer className="mt-12 flex flex-col gap-2 border-t border-[#eae8f1] py-5 text-[10px] text-[#706e79] sm:flex-row sm:items-center sm:justify-between"><span>© {new Date().getFullYear()} ProjectFlow · Make good work feel lighter.</span><span className="flex items-center gap-4"><Link href="/settings" className="hover:text-[#5b49ce]">Settings</Link><span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-[#51bd92]"/> Private workspace</span></span></footer>

@@ -41,6 +41,37 @@ export const createMessage = asyncHandler(async (req, res) => {
   return res.status(201).json(new ApiResponse(201, populated, "Message sent."));
 });
 
+export const updateMessageReceipts = asyncHandler(async (req, res) => {
+  const projectId = req.params.projectId;
+  const status = String(req.body.status || "");
+  if (status !== "delivered" && status !== "read") throw new ApiError(400, "Receipt status must be delivered or read.");
+  const rawIds = Array.isArray(req.body.messageIds) ? req.body.messageIds : [];
+  const messageIds = [...new Set(rawIds.map((id: unknown) => String(id)))].slice(0, 100);
+  if (!messageIds.length || messageIds.some((id) => !mongoose.isValidObjectId(id))) {
+    throw new ApiError(400, "Provide one or more valid message ids.");
+  }
+
+  const receipts: Array<{ messageId: string; deliveredTo: string[]; readBy: string[] }> = [];
+  for (const messageId of messageIds) {
+    const message = await Message.findOne({ _id: messageId, project: projectId });
+    if (!message || String(message.author) === String(req.user._id)) continue;
+    const update: Record<string, unknown> = { $addToSet: { deliveredTo: req.user._id } };
+    if (status === "read") (update.$addToSet as Record<string, unknown>).readBy = req.user._id;
+    const updated = await Message.findByIdAndUpdate(messageId, update, { new: true }).select("_id deliveredTo readBy").lean();
+    if (!updated) continue;
+    const receipt = {
+      messageId: String(updated._id),
+      userId: String(req.user._id),
+      status,
+      deliveredTo: (updated.deliveredTo || []).map((id: any) => String(id)),
+      readBy: (updated.readBy || []).map((id: any) => String(id)),
+    };
+    receipts.push({ messageId: receipt.messageId, deliveredTo: receipt.deliveredTo, readBy: receipt.readBy });
+    publishProjectEvent(projectId, "message:receipt", receipt);
+  }
+  return res.status(200).json(new ApiResponse(200, receipts, "Message receipts updated."));
+});
+
 export const updateMessage = asyncHandler(async (req, res) => {
   const message = await Message.findOne({ _id: req.params.messageId, project: req.params.projectId });
   if (!message) throw new ApiError(404, "Message not found.");

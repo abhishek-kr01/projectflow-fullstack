@@ -31,6 +31,29 @@ export interface ProjectMember {
   createdAt?: string;
 }
 
+
+export interface ProjectPresence {
+  userId: string;
+  online: boolean;
+  lastSeenAt: string | null;
+  user?: Pick<User, "_id" | "username" | "fullName" | "avatar"> | null;
+}
+
+export type PresenceView = "chat" | "project" | "dashboard" | "workspace" | "background";
+
+export interface ProjectChatMessage {
+  _id: string;
+  project: string;
+  task?: string;
+  content: string;
+  createdAt: string;
+  updatedAt?: string;
+  editedAt?: string;
+  author?: User;
+  deliveredTo?: string[];
+  readBy?: string[];
+}
+
 export interface Subtask {
   _id: string;
   title: string;

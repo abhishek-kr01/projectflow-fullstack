@@ -1,4 +1,4 @@
-import type { AppNotification, NotificationList, Project, ProjectMember, ProjectNote, Task, User } from "@/lib/types";
+import type { AppNotification, NotificationList, PresenceView, Project, ProjectChatMessage, ProjectMember, ProjectNote, ProjectPresence, Task, User } from "@/lib/types";
 
 const rawBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 export const API_BASE_URL = rawBase.replace(/\/+$/, "");
@@ -22,6 +22,19 @@ function cacheProject(project: Project) {
   const cache = readProjectCache();
   writeProjectCache([project, ...cache.filter((item) => item._id !== project._id)]);
   if (typeof window !== "undefined") window.dispatchEvent(new Event("projectflow:cache-changed"));
+}
+
+export function getPresenceSessionId() {
+  if (typeof window === "undefined") return "";
+  const key = "projectflow_presence_session_id";
+  let id = window.sessionStorage.getItem(key);
+  if (!id) {
+    id = typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    window.sessionStorage.setItem(key, id);
+  }
+  return id;
 }
 
 export function clearProjectCache() {
@@ -174,6 +187,15 @@ export const api = {
     updateSubtask: (projectId: string, subTaskId: string, body: { title?: string; isCompleted?: boolean }) => request<any>(`/tasks/${projectId}/st/${subTaskId}`, json("PUT", body)),
     removeSubtask: (projectId: string, subTaskId: string) => request<unknown>(`/tasks/${projectId}/st/${subTaskId}`, json("DELETE")),
   },
+  messages: {
+    markReceipts: (projectId: string, messageIds: string[], status: "delivered" | "read") =>
+      request<Array<{ messageId: string; deliveredTo: string[]; readBy: string[] }>>(`/messages/${projectId}/receipts`, json("POST", { messageIds, status })),
+  },
+  realtime: {
+    updatePresence: (input: { sessionId: string; activeProjectId?: string | null; activeView?: PresenceView; status?: "online" | "offline" }) =>
+      request<ProjectPresence>("/realtime/presence", json("POST", input)),
+    projectPresence: (projectId: string) => request<ProjectPresence[]>(`/realtime/${projectId}/presence`, { method: "GET" }),
+  },
   notes: {
     list: (projectId: string) => request<ProjectNote[]>(`/notes/${projectId}`, { method: "GET" }),
     get: (projectId: string, noteId: string) => request<ProjectNote>(`/notes/${projectId}/n/${noteId}`, { method: "GET" }),
@@ -185,6 +207,7 @@ export const api = {
     list: (limit = 30) => request<NotificationList>(`/notifications?limit=${Math.min(Math.max(limit, 1), 50)}`, { method: "GET" }),
     markRead: (notificationId: string) => request<AppNotification>(`/notifications/${notificationId}/read`, json("PATCH")),
     markAllRead: () => request<{ modifiedCount: number }>("/notifications/read-all", json("PATCH")),
+    markProjectMessagesRead: (projectId: string) => request<{ modifiedCount: number }>(`/notifications/projects/${projectId}/messages/read`, json("PATCH")),
     remove: (notificationId: string) => request<{ _id: string }>(`/notifications/${notificationId}`, json("DELETE")),
   },
 };

@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { verifyJWT, validateProjectPermission } from "../middlewares/auth.middleware.js";
 import { AvailableUserRole } from "../utils/constants.js";
-import { createMessage, deleteMessage, listMessages, updateMessage } from "../controllers/message.controllers.js";
+import { createMessage, deleteMessage, listMessages, updateMessage, updateMessageReceipts } from "../controllers/message.controllers.js";
 const router = Router();
 router.use(verifyJWT);
 router.get("/:projectId", validateProjectPermission(AvailableUserRole), listMessages);
+router.post("/:projectId/receipts", validateProjectPermission(AvailableUserRole), updateMessageReceipts);
 router.post("/:projectId", validateProjectPermission(AvailableUserRole), createMessage);
 router.put("/:projectId/:messageId", validateProjectPermission(AvailableUserRole), updateMessage);
 router.delete("/:projectId/:messageId", validateProjectPermission(AvailableUserRole), deleteMessage);

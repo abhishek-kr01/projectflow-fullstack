@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { Notification } from "../models/notification.models.js";
 import { ProjectMember } from "../models/projectmember.models.js";
-import { publishUserEvent } from "../utils/realtime.js";
+import { isUserViewingProjectChat, publishUserEvent } from "../utils/realtime.js";
 
 type NotificationType =
   | "task_created" | "task_updated" | "task_assigned" | "task_unassigned" | "task_deleted" | "subtask_created" | "subtask_updated" | "subtask_deleted"
@@ -62,7 +62,13 @@ export async function notifyProjectMembers(
 ) {
   const members = await ProjectMember.find({ project: projectId }).select("user").lean();
   const excluded = new Set(excludeUserIds.map(String));
-  const recipientIds = members.map((member: any) => member.user).filter((id: any) => !excluded.has(String(id)));
+  const recipientIds = members.map((member: any) => member.user).filter((id: any) => {
+    if (excluded.has(String(id))) return false;
+    // A user actively viewing this project chat has already seen the live conversation;
+    // do not add a redundant bell notification for every incoming chat message.
+    if (input.type.startsWith("message_") && isUserViewingProjectChat(String(id), String(projectId))) return false;
+    return true;
+  });
   return notifyUsers(recipientIds, { ...input, actorId, projectId });
 }
 

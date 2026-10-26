@@ -5,6 +5,8 @@ const messageSchema = new Schema<any>({
   author: { type: Schema.Types.ObjectId, ref: "User", required: true },
   content: { type: String, required: true, trim: true, maxlength: 5000 },
   editedAt: { type: Date, default: undefined },
+  deliveredTo: { type: [{ type: Schema.Types.ObjectId, ref: "User" }], default: [] },
+  readBy: { type: [{ type: Schema.Types.ObjectId, ref: "User" }], default: [] },
 }, { timestamps: true });
 messageSchema.index({ project: 1, createdAt: -1 });
 export const Message = (mongoose.models.Message as any) || mongoose.model<any>("Message", messageSchema);

@@ -280,3 +280,20 @@ sessions, create/update/assign a task or send a project chat message in one, the
 confirm the other user's bell badge increments without a manual refresh. Open the
 bell, mark an item read, use Mark all read, delete an item, and verify that unread
 counts stay consistent.
+
+## Live project chat: receipts, presence, and notification behavior
+
+- The project header and member list show live online/offline presence with a last-seen time when a user is offline. Presence uses per-tab heartbeats and expires a stale session after about 45 seconds.
+- Project chat messages now persist `deliveredTo` and `readBy` user IDs. The sender sees a single tick after persistence, double gray ticks after all other current project members have received the message, and double blue ticks after all have read it. For a multi-member project chat, members who are offline or have not opened the project may delay the all-delivered/all-read state.
+- Opening a project chat marks older message notifications for that project read. While a user's visible session is actively viewing that project's chat, incoming project chat messages do not create redundant notification-bell entries. Chat notifications for other projects and non-chat activity remain enabled.
+- Realtime events currently use an in-memory event bus and SSE. This is appropriate for a single backend instance; multiple backend instances require a shared broker (for example Redis Pub/Sub) so every instance receives the same presence, receipt, and notification events.
+- The SSE connection currently takes the short-lived access token as a query parameter because the native browser `EventSource` API cannot set an Authorization header. Before a sensitive/high-traffic production launch, prefer short-lived, single-use SSE tickets or a fetch-stream client that can send Authorization headers. Do not log full realtime URLs.
+
+### Presence and chat receipt test
+
+1. Log in as two different users in separate browsers and add both to the same project.
+2. Keep one browser on the project Chat tab and send a message from the other. The open chat should receive it without refresh and the recipient's message notification should not increase for that project.
+3. Send a message while the recipient is on another project tab. The sender should see delivery/read ticks change as the recipient's project session receives it and the recipient opens the Chat tab.
+4. Open the Project Members tab and confirm online dots/status update. Close the other browser; it should become offline after the presence heartbeat expires (up to roughly 45 seconds plus the next sweep interval).
+5. Confirm unread notifications from older chat messages for that project clear when its Chat tab is opened.
+
