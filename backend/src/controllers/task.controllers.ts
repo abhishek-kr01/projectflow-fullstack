@@ -6,6 +6,7 @@ import { Subtask } from "../models/subtask.models.js";
 import { ApiResponse } from "../utils/api-response.js";
 import { ApiError } from "../utils/api-error.js";
 import { asyncHandler } from "../utils/async-handler.js";
+import { AvailableTaskStatuses, UserRolesEnum } from "../utils/constants.js";
 
 const assertAssigneeIsMember = async (projectId: string, assignedTo?: string | null) => {
   if (!assignedTo) return;
@@ -63,6 +64,21 @@ export const updateTask = asyncHandler(async (req, res) => {
   const task = await Task.findOne({ _id: taskId, project: projectId });
   if (!task) throw new ApiError(404, "Task not found in this project.");
   const { title, description, status, assignedTo } = req.body;
+
+  // Members may only change the status of a task assigned to themselves.
+  // Admins and project admins can continue editing task details and assignees.
+  if (req.user?.role === UserRolesEnum.MEMBER) {
+    const submittedFields = Object.keys(req.body ?? {});
+    if (submittedFields.length !== 1 || submittedFields[0] !== "status" || status === undefined) {
+      throw new ApiError(403, "Members can only update the status of their assigned tasks.");
+    }
+    if (!task.assignedTo || String(task.assignedTo) !== String(req.user._id)) {
+      throw new ApiError(403, "You can only update the status of tasks assigned to you.");
+    }
+    if (!(AvailableTaskStatuses as string[]).includes(String(status))) {
+      throw new ApiError(400, "Status must be todo, in_progress, or done.");
+    }
+  }
 
   if (title !== undefined) task.title = String(title).trim();
   if (description !== undefined) task.description = String(description).trim();

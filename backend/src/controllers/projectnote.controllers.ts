@@ -3,6 +3,7 @@ import { Project } from "../models/project.models.js";
 import { ApiResponse } from "../utils/api-response.js";
 import { ApiError } from "../utils/api-error.js";
 import { asyncHandler } from "../utils/async-handler.js";
+import { UserRolesEnum } from "../utils/constants.js";
 
 export const getNotes = asyncHandler(async (req, res) => {
   const { projectId } = req.params;
@@ -28,6 +29,9 @@ export const getNoteById = asyncHandler(async (req, res) => {
 export const updateNote = asyncHandler(async (req, res) => {
   const note = await ProjectNote.findOne({ _id: req.params.noteId, project: req.params.projectId });
   if (!note) throw new ApiError(404, "Note not found in this project.");
+  if (req.user?.role === UserRolesEnum.MEMBER && String(note.createdBy) !== String(req.user._id)) {
+    throw new ApiError(403, "Members can only edit notes they created.");
+  }
   if (req.body.content !== undefined) note.content = String(req.body.content).trim();
   await note.save();
   const populated = await ProjectNote.findById(note._id).populate("createdBy", "username email fullName avatar");

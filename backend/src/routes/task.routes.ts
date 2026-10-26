@@ -14,7 +14,7 @@ router.use(verifyJWT);
 router.get("/:projectId", validateProjectPermission(AvailableUserRole), getTasks);
 router.post("/:projectId", validateProjectPermission([UserRolesEnum.ADMIN, UserRolesEnum.PROJECT_ADMIN]), upload.array("attachments", 5), createTaskValidator(), validate, createTask);
 router.get("/:projectId/t/:taskId", validateProjectPermission(AvailableUserRole), getTaskById);
-router.put("/:projectId/t/:taskId", validateProjectPermission([UserRolesEnum.ADMIN, UserRolesEnum.PROJECT_ADMIN]), updateTaskValidator(), validate, updateTask);
+router.put("/:projectId/t/:taskId", validateProjectPermission(AvailableUserRole), updateTaskValidator(), validate, updateTask);
 router.delete("/:projectId/t/:taskId", validateProjectPermission([UserRolesEnum.ADMIN]), deleteTask);
 router.post("/:projectId/t/:taskId/subtasks", validateProjectPermission(AvailableUserRole), createSubTaskValidator(), validate, createSubTask);
 router.put("/:projectId/st/:subTaskId", validateProjectPermission(AvailableUserRole), updateSubTaskValidator(), validate, updateSubTask);
