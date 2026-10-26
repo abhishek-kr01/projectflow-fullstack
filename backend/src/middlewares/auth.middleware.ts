@@ -20,7 +20,7 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
     throw new ApiError(401, "Your session has expired. Please sign in again.");
   }
 
-  if (typeof decoded === "string" || typeof decoded._id !== "string" || !mongoose.isValidObjectId(decoded._id)) {
+  if (typeof decoded === "string" || decoded.purpose === "realtime-stream" || typeof decoded._id !== "string" || !mongoose.isValidObjectId(decoded._id)) {
     throw new ApiError(401, "Invalid access token.");
   }
 

@@ -188,10 +188,14 @@ export const api = {
     removeSubtask: (projectId: string, subTaskId: string) => request<unknown>(`/tasks/${projectId}/st/${subTaskId}`, json("DELETE")),
   },
   messages: {
+    create: (projectId: string, body: { content: string; taskId?: string; replyToId?: string; mentionUserIds?: string[] }) => request<ProjectChatMessage>(`/messages/${projectId}`, json("POST", body)),
+    update: (projectId: string, messageId: string, content: string) => request<ProjectChatMessage>(`/messages/${projectId}/${messageId}`, json("PUT", { content })),
+    remove: (projectId: string, messageId: string) => request<{ _id: string }>(`/messages/${projectId}/${messageId}`, json("DELETE")),
     markReceipts: (projectId: string, messageIds: string[], status: "delivered" | "read") =>
       request<Array<{ messageId: string; deliveredTo: string[]; readBy: string[] }>>(`/messages/${projectId}/receipts`, json("POST", { messageIds, status })),
   },
   realtime: {
+    createStreamToken: (input: { scope: "project" | "notifications"; projectId?: string }) => request<{ token: string; expiresInSeconds: number }>("/realtime/stream-token", json("POST", input)),
     updatePresence: (input: { sessionId: string; activeProjectId?: string | null; activeView?: PresenceView; status?: "online" | "offline" }) =>
       request<ProjectPresence>("/realtime/presence", json("POST", input)),
     projectPresence: (projectId: string) => request<ProjectPresence[]>(`/realtime/${projectId}/presence`, { method: "GET" }),

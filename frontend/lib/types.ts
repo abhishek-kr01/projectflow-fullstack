@@ -50,6 +50,8 @@ export interface ProjectChatMessage {
   updatedAt?: string;
   editedAt?: string;
   author?: User;
+  replyTo?: { _id: string; content: string; createdAt?: string; author?: User } | string | null;
+  mentions?: Array<User | string>;
   deliveredTo?: string[];
   readBy?: string[];
 }
@@ -96,7 +98,7 @@ export interface ApiEnvelope<T> {
 export type AppNotificationType =
   | "task_created" | "task_updated" | "task_assigned" | "task_unassigned" | "task_deleted" | "subtask_created" | "subtask_updated" | "subtask_deleted"
   | "note_created" | "note_updated" | "note_deleted"
-  | "message_created" | "message_updated" | "message_deleted"
+  | "message_created" | "message_mentioned" | "message_updated" | "message_deleted"
   | "member_added" | "member_role_updated" | "member_removed" | "project_updated";
 
 export interface AppNotification {

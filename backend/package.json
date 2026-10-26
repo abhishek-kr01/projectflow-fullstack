@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test tests/realtime.service.test.ts tests/sse.test.ts"
+    "test": "tsx --test tests/realtime.service.test.ts tests/sse.test.ts tests/realtime-token.service.test.ts tests/task-policy.service.test.ts"
   },
   "engines": {
     "node": ">=20.9.0"

@@ -9,6 +9,9 @@ export interface ProjectRealtimeEnvelope<T = unknown> {
 export const PROJECT_REALTIME_EVENT = "projectflow:project-event";
 export const PROJECT_REALTIME_STATUS_EVENT = "projectflow:project-realtime-status";
 
+// Keep the latest connection state so child pages mounted after the SSE handshake can sync immediately.
+let lastProjectRealtimeConnected = false;
+
 export const PROJECT_REALTIME_EVENT_TYPES = [
   "project:updated",
   "project:deleted",
@@ -47,6 +50,7 @@ export function subscribeProjectRealtime(listener: (event: ProjectRealtimeEnvelo
 }
 
 export function dispatchProjectRealtimeStatus(connected: boolean): void {
+  lastProjectRealtimeConnected = connected;
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent<{ connected: boolean }>(PROJECT_REALTIME_STATUS_EVENT, { detail: { connected } }));
 }
@@ -55,5 +59,7 @@ export function subscribeProjectRealtimeStatus(listener: (connected: boolean) =>
   if (typeof window === "undefined") return () => undefined;
   const handler = (event: Event) => listener(Boolean((event as CustomEvent<{ connected?: boolean }>).detail?.connected));
   window.addEventListener(PROJECT_REALTIME_STATUS_EVENT, handler);
+  // ProjectLayout owns the stream and often connects before a chat tab mounts. Replay current state.
+  listener(lastProjectRealtimeConnected);
   return () => window.removeEventListener(PROJECT_REALTIME_STATUS_EVENT, handler);
 }

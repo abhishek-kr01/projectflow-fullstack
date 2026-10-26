@@ -9,7 +9,7 @@ type NotificationType =
   | "task_created" | "task_updated" | "task_assigned" | "task_unassigned" | "task_deleted"
   | "subtask_created" | "subtask_updated" | "subtask_deleted"
   | "note_created" | "note_updated" | "note_deleted"
-  | "message_created" | "message_updated" | "message_deleted"
+  | "message_created" | "message_mentioned" | "message_updated" | "message_deleted"
   | "member_added" | "member_role_updated" | "member_removed" | "project_updated";
 type EntityType = "project" | "task" | "note" | "message" | "member";
 
@@ -141,7 +141,7 @@ export async function removeUserNotification(userId: string, notificationId: str
 export async function markProjectMessageNotificationsRead(userId: string, projectId: string) {
   if (!mongoose.isValidObjectId(projectId)) throw new ApiError(400, "Invalid project id.");
   const result = await Notification.updateMany(
-    { recipient: userId, project: projectId, type: { $in: ["message_created", "message_updated", "message_deleted"] }, readAt: null },
+    { recipient: userId, project: projectId, type: { $in: ["message_created", "message_mentioned", "message_updated", "message_deleted"] }, readAt: null },
     { $set: { readAt: new Date() } },
   );
   publishUserEvent(userId, "notification:read-context", { projectId, modifiedCount: result.modifiedCount });

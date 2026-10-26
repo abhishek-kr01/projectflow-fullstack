@@ -31,6 +31,8 @@ export const createMessage = asyncHandler(async (req, res) => {
     actor: actorFromRequest(req),
     content: String(req.body.content || ""),
     taskId: req.body.taskId ? String(req.body.taskId) : undefined,
+    replyToId: req.body.replyToId ? String(req.body.replyToId) : undefined,
+    mentionUserIds: Array.isArray(req.body.mentionUserIds) ? req.body.mentionUserIds.map(String) : [],
   });
   res.status(201).json(new ApiResponse(201, message, "Message sent."));
 });

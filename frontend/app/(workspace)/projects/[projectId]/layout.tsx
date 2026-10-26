@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUpRight, CheckSquare, FileText, LayoutDashboard, Users, MessageCircle } from "lucide-react";
-import { API_BASE_URL, api } from "@/lib/api";
+import { api } from "@/lib/api";
+import { openAuthenticatedSse } from "@/lib/authenticated-sse";
 import type { Project, ProjectMember, ProjectPresence } from "@/lib/types";
 import { Avatar, ErrorMessage } from "@/components/ui";
 import { PROJECT_REALTIME_EVENT_TYPES, dispatchProjectRealtimeEvent, dispatchProjectRealtimeStatus, type ProjectRealtimeEnvelope } from "@/lib/project-realtime";
@@ -27,12 +28,11 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
   }, [projectId]);
   useEffect(() => { void load(); }, [load]);
 
-  // One project-scoped SSE connection is owned here. Child tabs subscribe to the typed
-  // browser event bridge instead of opening duplicate streams for the same project.
+  // One authenticated project-scoped SSE connection is owned here. The stream token is
+  // short-lived and refreshed whenever the connection needs to reconnect.
   useEffect(() => {
     if (!user?._id || !projectId) return;
     let alive = true;
-    let source: EventSource | null = null;
 
     const loadPresence = async () => {
       try {
@@ -53,74 +53,52 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
       } catch { /* Keep existing project data if a refresh fails temporarily. */ }
     };
 
-    const connect = () => {
-      source?.close();
-      dispatchProjectRealtimeStatus(false);
-      const nextSource = new EventSource(`${API_BASE_URL}/realtime/${projectId}/events`, { withCredentials: true });
-      source = nextSource;
-      nextSource.addEventListener("connected", () => dispatchProjectRealtimeStatus(true));
-      nextSource.onopen = () => dispatchProjectRealtimeStatus(true);
-      nextSource.onerror = () => dispatchProjectRealtimeStatus(false);
-
-      const handleProjectEvent = (rawEvent: Event) => {
-        try {
-          const envelope = JSON.parse((rawEvent as MessageEvent).data) as ProjectRealtimeEnvelope;
-          if (!envelope?.type || envelope.projectId !== projectId) return;
-          dispatchProjectRealtimeEvent(envelope);
-
-          if (envelope.type === "presence:changed") {
-            const next = envelope.payload as ProjectPresence;
-            if (next?.userId) setPresenceByUser((current) => ({ ...current, [next.userId]: { ...current[next.userId], ...next } }));
-          }
-
-          if (["project:updated", "member:created", "member:updated", "member:removed"].includes(envelope.type)) {
-            void refreshProjectContext();
-          }
-          if (envelope.type === "project:deleted") {
-            nextSource.close();
-            router.replace("/projects");
-            return;
-          }
-
-          if (envelope.type === "member:removed") {
-            const payload = envelope.payload as { userId?: unknown } | null;
-            if (String(payload?.userId || "") === String(user._id)) {
-              nextSource.close();
-              dispatchProjectRealtimeStatus(false);
-              router.replace("/projects");
-            }
-          }
-
-          if (envelope.type === "message:created") {
-            const message = envelope.payload as { _id?: string; task?: unknown; author?: { _id?: string } | string } | null;
-            const authorId = String(typeof message?.author === "object" ? message.author?._id || "" : message?.author || "");
-            if (!message?._id || message.task || authorId === String(user._id)) return;
-            const chatIsVisible = pathnameRef.current === `/projects/${projectId}/chat` && document.visibilityState === "visible";
-            if (!chatIsVisible) void api.messages.markReceipts(projectId, [String(message._id)], "delivered").catch(() => undefined);
-          }
-        } catch { /* Ignore malformed events without breaking the shared stream. */ }
-      };
-
-      for (const eventName of PROJECT_REALTIME_EVENT_TYPES) {
-        nextSource.addEventListener(eventName, handleProjectEvent);
-      }
-      nextSource.addEventListener("access:revoked", () => {
-        nextSource.close();
-        dispatchProjectRealtimeStatus(false);
-        router.replace("/projects");
-      });
-    };
-
     void loadPresence();
     const presenceTimer = window.setInterval(() => { void loadPresence(); }, 20_000);
-    connect();
-    window.addEventListener("projectflow:token-refreshed", connect);
+    const closeStream = openAuthenticatedSse({
+      scope: "project",
+      projectId,
+      path: `/realtime/${projectId}/events`,
+      eventNames: PROJECT_REALTIME_EVENT_TYPES,
+      onStatus: dispatchProjectRealtimeStatus,
+      onAccessRevoked: () => router.replace("/projects"),
+      onEvent: (_eventName, raw) => {
+        const envelope = raw as ProjectRealtimeEnvelope;
+        if (!envelope?.type || envelope.projectId !== projectId) return;
+        dispatchProjectRealtimeEvent(envelope);
+
+        if (envelope.type === "presence:changed") {
+          const next = envelope.payload as ProjectPresence;
+          if (next?.userId) setPresenceByUser((current) => ({ ...current, [next.userId]: { ...current[next.userId], ...next } }));
+        }
+
+        if (["project:updated", "member:created", "member:updated", "member:removed"].includes(envelope.type)) {
+          void refreshProjectContext();
+        }
+        if (envelope.type === "project:deleted") {
+          router.replace("/projects");
+          return;
+        }
+
+        if (envelope.type === "member:removed") {
+          const payload = envelope.payload as { userId?: unknown } | null;
+          if (String(payload?.userId || "") === String(user._id)) router.replace("/projects");
+        }
+
+        if (envelope.type === "message:created") {
+          const message = envelope.payload as { _id?: string; task?: unknown; author?: { _id?: string } | string } | null;
+          const authorId = String(typeof message?.author === "object" ? message.author?._id || "" : message?.author || "");
+          if (!message?._id || message.task || authorId === String(user._id)) return;
+          const chatIsVisible = pathnameRef.current === `/projects/${projectId}/chat` && document.visibilityState === "visible";
+          if (!chatIsVisible) void api.messages.markReceipts(projectId, [String(message._id)], "delivered").catch(() => undefined);
+        }
+      },
+    });
+
     return () => {
       alive = false;
       window.clearInterval(presenceTimer);
-      window.removeEventListener("projectflow:token-refreshed", connect);
-      source?.close();
-      dispatchProjectRealtimeStatus(false);
+      closeStream();
     };
   }, [projectId, user?._id, router]);
 

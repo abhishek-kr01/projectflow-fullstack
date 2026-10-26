@@ -5,9 +5,9 @@ import { Task } from "../models/task.models.js";
 import { Subtask } from "../models/subtask.models.js";
 import { Message } from "../models/message.models.js";
 import { ApiError } from "../utils/api-error.js";
-import { AvailableTaskStatuses, UserRolesEnum } from "../utils/constants.js";
 import { publishProjectEvent } from "./realtime.service.js";
 import { safelyNotifyProjectMembers, safelyNotifyUsers } from "./notification.service.js";
+import { assertTaskUpdateAllowed } from "./task-policy.service.js";
 
 export interface TaskActor {
   id: string;
@@ -109,18 +109,7 @@ export async function updateTask(input: UpdateTaskInput) {
   const previousStatus = String(task.status);
   const assignmentWasSubmitted = Object.prototype.hasOwnProperty.call(body, "assignedTo");
 
-  if (actor.role === UserRolesEnum.MEMBER) {
-    const submittedFields = Object.keys(body);
-    if (submittedFields.length !== 1 || submittedFields[0] !== "status" || status === undefined) {
-      throw new ApiError(403, "Members can only update the status of their assigned tasks.");
-    }
-    if (!task.assignedTo || String(task.assignedTo) !== actor.id) {
-      throw new ApiError(403, "You can only update the status of tasks assigned to you.");
-    }
-    if (!(AvailableTaskStatuses as string[]).includes(String(status))) {
-      throw new ApiError(400, "Status must be todo, in_progress, or done.");
-    }
-  }
+  assertTaskUpdateAllowed(actor.role, body);
 
   if (title !== undefined) task.title = String(title).trim();
   if (description !== undefined) task.description = String(description).trim();

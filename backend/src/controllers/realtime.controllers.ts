@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import { createRealtimeStreamToken, type RealtimeStreamScope } from "../services/realtime-token.service.js";
+import { requireProjectMembership } from "../services/project-access.service.js";
 import type { RequestHandler } from "express";
 import { asyncHandler } from "../utils/async-handler.js";
 import { ApiError } from "../utils/api-error.js";
@@ -8,6 +10,24 @@ import { subscribeProjectEvents, subscribeUserEvents } from "../services/realtim
 import { listProjectPresence, removePresenceSession, updatePresenceSession, type PresenceView } from "../services/presence.service.js";
 
 const allowedViews: readonly PresenceView[] = ["chat", "project", "dashboard", "workspace", "background"];
+
+export const createStreamToken: RequestHandler = asyncHandler(async (req, res) => {
+  const userId = String(req.user?._id || "");
+  if (!mongoose.isValidObjectId(userId)) throw new ApiError(401, "Sign in to continue.");
+  const scope = String(req.body?.scope || "") as RealtimeStreamScope;
+  if (scope !== "project" && scope !== "notifications") throw new ApiError(400, "Stream scope must be project or notifications.");
+  const rawProjectId = req.body?.projectId;
+  let projectId: string | undefined;
+  if (scope === "project") {
+    projectId = String(rawProjectId || "");
+    if (!mongoose.isValidObjectId(projectId)) throw new ApiError(400, "A valid project id is required for a project stream.");
+    await requireProjectMembership({ projectId, userId });
+  } else if (rawProjectId) {
+    throw new ApiError(400, "Notification stream tokens cannot be scoped to a project.");
+  }
+  const token = createRealtimeStreamToken({ userId, scope, projectId });
+  res.status(200).json(new ApiResponse(200, token, "Realtime stream token created."));
+});
 
 export const streamUserNotifications: RequestHandler = asyncHandler(async (req, res) => {
   const userId = String(req.user?._id || "");

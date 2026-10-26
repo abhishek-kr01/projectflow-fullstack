@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE_URL, api, getPresenceSessionId } from "@/lib/api";
+import { openAuthenticatedSse } from "@/lib/authenticated-sse";
 import { useAuth } from "@/lib/auth-context";
 import type { AppNotification, Project } from "@/lib/types";
 import { Avatar, BrandMark } from "@/components/ui";
@@ -62,34 +63,31 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status !== "authenticated") return;
     void loadNotifications();
-    let source: EventSource | null = null;
-    const connect = () => {
-      source?.close();
-      const nextSource = new EventSource(`${API_BASE_URL}/realtime/users/notifications/events`, { withCredentials: true });
-      source = nextSource;
-      nextSource.addEventListener("notification:created", (event) => {
-        try {
-          const message = JSON.parse((event as MessageEvent).data);
-          const notification = (message?.payload || message) as AppNotification;
+
+    const closeStream = openAuthenticatedSse({
+      scope: "notifications",
+      path: "/realtime/users/notifications/events",
+      eventNames: ["notification:created", "notification:read", "notification:read-all", "notification:read-context", "notification:deleted"],
+      onStatus: () => undefined,
+      onEvent: (eventName, raw) => {
+        if (eventName === "notification:created") {
+          const envelope = raw as { payload?: AppNotification } | AppNotification;
+          const notification = (envelope as { payload?: AppNotification })?.payload || envelope as AppNotification;
           if (!notification?._id) return;
           setNotifications((current) => [notification, ...current.filter((item) => item._id !== notification._id)].slice(0, 30));
           if (!notification.readAt) setUnreadCount((current) => current + 1);
           window.dispatchEvent(new Event("projectflow:notification-changed"));
-        } catch { /* Ignore malformed events and keep the stream alive. */ }
-      });
-      const refreshAfterRead = () => { window.dispatchEvent(new Event("projectflow:notification-changed")); };
-      nextSource.addEventListener("notification:read", refreshAfterRead);
-      nextSource.addEventListener("notification:read-all", refreshAfterRead);
-      nextSource.addEventListener("notification:read-context", refreshAfterRead);
-      nextSource.addEventListener("notification:deleted", refreshAfterRead);
-    };
-    connect();
-    window.addEventListener("projectflow:token-refreshed", connect);
+          return;
+        }
+        window.dispatchEvent(new Event("projectflow:notification-changed"));
+        if (eventName === "notification:read-all") setUnreadCount(0);
+        else if (eventName === "notification:deleted" || eventName === "notification:read-context" || eventName === "notification:read") void loadNotifications();
+      },
+    });
     const refresh = () => { void loadNotifications(); };
     window.addEventListener("projectflow:notification-changed", refresh);
     return () => {
-      source?.close();
-      window.removeEventListener("projectflow:token-refreshed", connect);
+      closeStream();
       window.removeEventListener("projectflow:notification-changed", refresh);
     };
   }, [status, loadNotifications]);

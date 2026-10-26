@@ -13,6 +13,7 @@ export const NotificationTypes = [
   "note_updated",
   "note_deleted",
   "message_created",
+  "message_mentioned",
   "message_updated",
   "message_deleted",
   "member_added",
